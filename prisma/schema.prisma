@@ -9,31 +9,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Enum cho trạng thái phòng
+// ... (Giữ nguyên các Enum RoomStatus, ContractStatus, InvoiceStatus, Role)
 enum RoomStatus {
-  AVAILABLE   // Trống
-  OCCUPIED    // Đã thuê
-  MAINTENANCE // Bảo trì
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
 }
 
-// Enum cho trạng thái hợp đồng
 enum ContractStatus {
   ACTIVE
   EXPIRED
   TERMINATED
 }
 
-// Enum cho trạng thái hóa đơn
 enum InvoiceStatus {
   UNPAID
   PAID
   OVERDUE
 }
 
-// Enum vai trò người dùng
 enum Role {
   ADMIN
-  TENANT // Khách thuê
+  TENANT
 }
 
 model Branch {
@@ -41,9 +38,12 @@ model Branch {
   name      String
   address   String
   manager   String
+  
+  image     String?  // <--- MỚI: Link ảnh cổng hoặc toàn cảnh khu trọ
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  deletedAt DateTime? // <--- Thêm trường xóa mềm
+  deletedAt DateTime?
 
   rooms     Room[]
 }
@@ -54,10 +54,13 @@ model Room {
   price       Decimal    @db.Decimal(10, 2)
   area        Float?
   status      RoomStatus @default(AVAILABLE)
+  
+  image       String?    // <--- MỚI: Link ảnh phòng (Thumbnail)
+  
   branchId    Int
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  deletedAt   DateTime? // <--- Thêm trường xóa mềm
+  deletedAt   DateTime?
 
   branch    Branch     @relation(fields: [branchId], references: [id])
   contracts Contract[]
@@ -73,17 +76,20 @@ model User {
   identityCard  String?  @unique 
   role          Role     @default(TENANT)
   
+  avatar        String?  // <--- MỚI: Link ảnh đại diện (Avatar)
+  
   // Data cho AI & IoT
   faceDescriptor Float[] 
   fingerprintId  Int?     @unique
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  deletedAt     DateTime? // <--- Thêm trường xóa mềm
+  deletedAt     DateTime?
 
   contracts     Contract[]
 }
 
+// ... (Giữ nguyên model Contract)
 model Contract {
   id        Int            @id @default(autoincrement())
   startDate DateTime
@@ -91,22 +97,23 @@ model Contract {
   deposit   Decimal        @db.Decimal(10, 2)
   status    ContractStatus @default(ACTIVE)
   
+  scanImage String?        // <--- MỚI: Link ảnh chụp hợp đồng giấy đã ký
+  
   userId    Int
   roomId    Int
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
-  deletedAt DateTime? // <--- Thêm trường xóa mềm
+  deletedAt DateTime?
 
   user      User           @relation(fields: [userId], references: [id])
   room      Room           @relation(fields: [roomId], references: [id])
 }
-
+// ... (Giữ nguyên model Invoice)
 model Invoice {
   id             Int           @id @default(autoincrement())
   month          Int
   year           Int
   
-  // Chỉ số điện nước
   oldElectricity Int
   newElectricity Int
   oldWater       Int
@@ -116,10 +123,12 @@ model Invoice {
   totalAmount    Decimal       @db.Decimal(10, 2)
   status         InvoiceStatus @default(UNPAID)
   
+  paymentProof   String?       // <--- MỚI (Optional): Ảnh chụp màn hình chuyển khoản
+  
   roomId         Int
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime? // <--- Thêm trường xóa mềm
+  deletedAt      DateTime?
 
   room           Room          @relation(fields: [roomId], references: [id])
 }
