@@ -1,0 +1,125 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Enum cho trạng thái phòng
+enum RoomStatus {
+  AVAILABLE   // Trống
+  OCCUPIED    // Đã thuê
+  MAINTENANCE // Bảo trì
+}
+
+// Enum cho trạng thái hợp đồng
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+// Enum cho trạng thái hóa đơn
+enum InvoiceStatus {
+  UNPAID
+  PAID
+  OVERDUE
+}
+
+// Enum vai trò người dùng
+enum Role {
+  ADMIN
+  TENANT // Khách thuê
+}
+
+model Branch {
+  id        Int      @id @default(autoincrement())
+  name      String
+  address   String
+  manager   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime? // <--- Thêm trường xóa mềm
+
+  rooms     Room[]
+}
+
+model Room {
+  id          Int        @id @default(autoincrement())
+  roomNumber  String
+  price       Decimal    @db.Decimal(10, 2)
+  area        Float?
+  status      RoomStatus @default(AVAILABLE)
+  branchId    Int
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime? // <--- Thêm trường xóa mềm
+
+  branch    Branch     @relation(fields: [branchId], references: [id])
+  contracts Contract[]
+  invoices  Invoice[]
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique 
+  password      String   
+  fullName      String
+  phone         String?  
+  identityCard  String?  @unique 
+  role          Role     @default(TENANT)
+  
+  // Data cho AI & IoT
+  faceDescriptor Float[] 
+  fingerprintId  Int?     @unique
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime? // <--- Thêm trường xóa mềm
+
+  contracts     Contract[]
+}
+
+model Contract {
+  id        Int            @id @default(autoincrement())
+  startDate DateTime
+  endDate   DateTime
+  deposit   Decimal        @db.Decimal(10, 2)
+  status    ContractStatus @default(ACTIVE)
+  
+  userId    Int
+  roomId    Int
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  deletedAt DateTime? // <--- Thêm trường xóa mềm
+
+  user      User           @relation(fields: [userId], references: [id])
+  room      Room           @relation(fields: [roomId], references: [id])
+}
+
+model Invoice {
+  id             Int           @id @default(autoincrement())
+  month          Int
+  year           Int
+  
+  // Chỉ số điện nước
+  oldElectricity Int
+  newElectricity Int
+  oldWater       Int
+  newWater       Int
+  
+  serviceFee     Decimal       @db.Decimal(10, 2) @default(0)
+  totalAmount    Decimal       @db.Decimal(10, 2)
+  status         InvoiceStatus @default(UNPAID)
+  
+  roomId         Int
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  deletedAt      DateTime? // <--- Thêm trường xóa mềm
+
+  room           Room          @relation(fields: [roomId], references: [id])
+}
