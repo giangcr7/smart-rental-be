@@ -1,10 +1,9 @@
-// prisma/seed.ts
-// 1. Thêm import "User" ở đây để định nghĩa kiểu dữ liệu
 import { PrismaClient, Role, RoomStatus, ContractStatus, InvoiceStatus, User } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-// Dữ liệu mẫu
+// Dữ liệu cấu hình
 const BRANCHES = [
   { name: 'Happy House Cầu Giấy', address: 'Số 12, Ngõ 34 Cầu Giấy, Hà Nội', img: 'https://res.cloudinary.com/demo/image/upload/v1/sample/architecture' },
   { name: 'Dream Home Đống Đa', address: '102 Chùa Láng, Đống Đa, Hà Nội', img: 'https://res.cloudinary.com/demo/image/upload/v1/sample/landscapes/architecture-signs' },
@@ -23,9 +22,13 @@ const randomElement = <T>(array: T[]): T => array[Math.floor(Math.random() * arr
 const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 async function main() {
-  console.log('🌱 Bắt đầu Seeding theo Schema chuẩn...');
+  console.log('🌱 Bắt đầu Seeding với mật khẩu Hash (123456)...');
 
-  // 1. Dọn dẹp dữ liệu cũ
+  // 1. Chuẩn bị mật khẩu Hash
+  const saltRounds = 10;
+  const commonPassword = await bcrypt.hash('123456', saltRounds);
+
+  // 2. Dọn dẹp dữ liệu cũ
   try {
     await prisma.invoice.deleteMany();
     await prisma.contract.deleteMany();
@@ -33,15 +36,15 @@ async function main() {
     await prisma.branch.deleteMany();
     await prisma.user.deleteMany(); 
   } catch (e) {
-    console.log('⚠️ Database mới, bỏ qua bước dọn dẹp.');
+    console.log('⚠️ Bỏ qua bước dọn dẹp.');
   }
 
-  // 2. Tạo Admin
+  // 3. Tạo Admin (Mật khẩu: 123456)
   console.log('👤 Đang tạo Admin...');
   await prisma.user.create({
     data: {
       email: 'admin@gmail.com',
-      password: '123',
+      password: commonPassword,
       fullName: 'Super Admin Giang',
       phone: '0988123456',
       role: Role.ADMIN,
@@ -50,18 +53,16 @@ async function main() {
     },
   });
 
-  // 3. Tạo 50 Tenants
+  // 4. Tạo 50 Tenants (Mật khẩu: 123456)
   console.log('👥 Đang tạo 50 khách thuê...');
-  // SỬA LỖI Ở ĐÂY: Khai báo rõ ràng đây là mảng chứa User
   const tenants: User[] = []; 
-  
   for (let i = 1; i <= 50; i++) {
     const ho = randomElement(LAST_NAMES);
     const ten = randomElement(FIRST_NAMES);
     const user = await prisma.user.create({
       data: {
         email: `tenant${i}@gmail.com`,
-        password: '123',
+        password: commonPassword,
         fullName: `${ho} ${ten}`,
         phone: `09${randomInt(10000000, 99999999)}`,
         role: Role.TENANT,
@@ -72,8 +73,8 @@ async function main() {
     tenants.push(user);
   }
 
-  // 4. Tạo Branch & Room
-  console.log('uta Đang tạo Chi nhánh & Phòng...');
+  // 5. Tạo Branch & Room
+  console.log('🏢 Đang tạo Chi nhánh & Phòng...');
   for (const branchData of BRANCHES) {
     const branch = await prisma.branch.create({
       data: {
@@ -103,30 +104,27 @@ async function main() {
         },
       });
 
-      // 5. Tạo Hợp đồng & Hóa đơn (Lấp đầy 60%)
+      // 6. Tạo Hợp đồng & Hóa đơn (Lấp đầy 60% phòng)
       if (Math.random() > 0.4) {
         const tenant = randomElement(tenants);
         
-        // Tạo hợp đồng
         await prisma.contract.create({
           data: {
             startDate: new Date('2025-01-01'),
             endDate: new Date('2026-01-01'),
             deposit: price,
             status: ContractStatus.ACTIVE,
-            userId: tenant.id, // Bây giờ tenant đã có kiểu User nên tenant.id không bị lỗi nữa
+            userId: tenant.id,
             roomId: room.id,
             scanImage: "https://res.cloudinary.com/demo/image/upload/v1/sample/documents/contract.jpg"
           }
         });
 
-        // Cập nhật trạng thái phòng
         await prisma.room.update({
           where: { id: room.id },
           data: { status: RoomStatus.OCCUPIED }
         });
 
-        // Tạo hóa đơn
         await prisma.invoice.create({
           data: {
             month: 1,
@@ -138,9 +136,7 @@ async function main() {
             serviceFee: 150000,
             totalAmount: price + 150000 + (50 * 3500) + (5 * 20000),
             status: Math.random() > 0.5 ? InvoiceStatus.PAID : InvoiceStatus.UNPAID,
-            room: {
-                connect: { id: room.id }
-            }
+            room: { connect: { id: room.id } }
           }
         });
       }
