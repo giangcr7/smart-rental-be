@@ -1,34 +1,30 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { RoomStatus, ContractStatus } from '@prisma/client'; // Import Enum từ Prisma
+import { RoomStatus, ContractStatus, Role } from '@prisma/client'; // Import thêm Role
 
 @Injectable()
 export class ContractService {
   constructor(private prisma: PrismaService) {}
 
-  // 1. Tạo hợp đồng mới (Dùng Transaction)
+  // 1. Tạo hợp đồng mới (Giữ nguyên - Logic tốt)
   async create(createContractDto: CreateContractDto) {
     const { roomId, userId, startDate, endDate, deposit } = createContractDto;
 
-    // Bước 1: Kiểm tra phòng có tồn tại và CÒN TRỐNG không?
     const room = await this.prisma.room.findUnique({ where: { id: roomId } });
     if (!room) throw new NotFoundException('Phòng không tồn tại');
     if (room.status !== RoomStatus.AVAILABLE) {
       throw new BadRequestException('Phòng này đã có người thuê hoặc đang bảo trì!');
     }
 
-    // Bước 2: Kiểm tra người dùng có tồn tại không
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Người thuê không tồn tại');
 
-    // Bước 3: Chạy Transaction (Tạo hợp đồng + Cập nhật phòng cùng lúc)
     return this.prisma.$transaction(async (prisma) => {
-      // a. Tạo hợp đồng
       const newContract = await prisma.contract.create({
         data: {
-          startDate: new Date(startDate), // Convert chuỗi sang Date
+          startDate: new Date(startDate),
           endDate: new Date(endDate),
           deposit: deposit,
           status: ContractStatus.ACTIVE,
@@ -37,7 +33,6 @@ export class ContractService {
         },
       });
 
-      // b. Cập nhật trạng thái phòng sang OCCUPIED
       await prisma.room.update({
         where: { id: roomId },
         data: { status: RoomStatus.OCCUPIED },
@@ -47,27 +42,45 @@ export class ContractService {
     });
   }
 
-  // 2. Lấy danh sách hợp đồng
-  findAll() {
+  // 2. Lấy danh sách (ĐÃ SỬA: Phân quyền Admin/Tenant)
+  async findAll(user: any) {
+    // Tạo bộ lọc mặc định
+    const whereCondition: any = { deletedAt: null };
+
+    // Nếu KHÔNG PHẢI ADMIN -> Chỉ được lấy hợp đồng CỦA MÌNH
+    if (user.role !== Role.ADMIN) {
+      whereCondition.userId = user.id;
+    }
+
     return this.prisma.contract.findMany({
-      where: { deletedAt: null },
+      where: whereCondition, // Áp dụng bộ lọc
       include: {
-        user: { select: { id: true, fullName: true, email: true, phone: true } }, // Lấy thông tin người thuê
-        room: { select: { id: true, roomNumber: true, price: true } }, // Lấy thông tin phòng
+        user: { select: { id: true, fullName: true, email: true, phone: true } },
+        room: { select: { id: true, roomNumber: true, price: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  // 3. Xem chi tiết
-  findOne(id: number) {
-    return this.prisma.contract.findUnique({
+  // 3. Xem chi tiết (ĐÃ SỬA: Chặn xem trộm)
+  async findOne(id: number, user: any) {
+    const contract = await this.prisma.contract.findUnique({
       where: { id },
       include: { user: true, room: true },
     });
+
+    if (!contract) throw new NotFoundException(`Hợp đồng #${id} không tồn tại`);
+
+    // LOGIC BẢO MẬT:
+    // Nếu user không phải Admin VÀ cũng không phải chủ sở hữu hợp đồng -> CẤM
+    if (user.role !== Role.ADMIN && contract.userId !== user.id) {
+      throw new ForbiddenException('Bạn không có quyền xem hợp đồng này!');
+    }
+
+    return contract;
   }
 
-  // 4. Cập nhật
+  // 4. Cập nhật (Giữ nguyên)
   update(id: number, updateContractDto: UpdateContractDto) {
     return this.prisma.contract.update({
       where: { id },
@@ -75,19 +88,23 @@ export class ContractService {
     });
   }
 
-  // 5. Thanh lý hợp đồng (Kết thúc sớm) -> Trả phòng về AVAILABLE
+  // 5. Thanh lý hợp đồng (Giữ nguyên - Logic tốt)
   async terminate(id: number) {
     return this.prisma.$transaction(async (prisma) => {
-      // a. Cập nhật hợp đồng thành TERMINATED
+      // a. Kiểm tra hợp đồng tồn tại không trước khi update
+      const existingContract = await prisma.contract.findUnique({ where: { id } });
+      if (!existingContract) throw new NotFoundException('Hợp đồng không tồn tại');
+
+      // b. Cập nhật hợp đồng thành TERMINATED
       const contract = await prisma.contract.update({
         where: { id },
         data: { 
           status: ContractStatus.TERMINATED,
-          deletedAt: new Date() // Xóa mềm luôn nếu muốn ẩn khỏi danh sách hiện tại
+          // deletedAt: new Date() // Tùy chọn: Có muốn ẩn luôn không hay giữ lại lịch sử
         },
       });
 
-      // b. Trả phòng về trạng thái AVAILABLE
+      // c. Trả phòng về trạng thái AVAILABLE
       await prisma.room.update({
         where: { id: contract.roomId },
         data: { status: RoomStatus.AVAILABLE },
