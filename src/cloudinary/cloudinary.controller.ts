@@ -1,25 +1,26 @@
-import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Query } from '@nestjs/common';
+import { Controller, Post, UseInterceptors, UploadedFile, BadRequestException, Query, UseGuards, Req } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CloudinaryService } from './cloudinary.service';
-import { ApiConsumes, ApiBody, ApiOperation, ApiTags, ApiQuery } from '@nestjs/swagger';
+import { ApiConsumes, ApiBody, ApiOperation, ApiTags, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
+import { Role } from '@prisma/client'; // Import Role
 
 @ApiTags('Upload - Tải ảnh')
+@ApiBearerAuth() // Hiện nút khóa trên Swagger
+@UseGuards(AuthGuard('jwt')) // <--- CHỐT CHẶN 1: Phải đăng nhập mới được Upload
 @Controller('upload')
 export class CloudinaryController {
   constructor(private readonly cloudinaryService: CloudinaryService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Upload 1 file ảnh -> Trả về URL (Có thể chọn folder)' })
-  @ApiConsumes('multipart/form-data') // Báo cho Swagger biết đây là upload file
-  
-  // 1. Thêm cái này để Swagger hiện ô nhập folder cho Giang test
+  @ApiOperation({ summary: 'Upload file ảnh (Admin chọn folder, Tenant tự động vào avatars/payment)' })
+  @ApiConsumes('multipart/form-data')
   @ApiQuery({ 
     name: 'folder', 
     required: false, 
-    description: 'Tên thư mục con trên Cloud (VD: rooms, avatars, contracts)', 
+    description: 'Tên thư mục (Chỉ Admin mới có tác dụng)', 
     example: 'rooms' 
   })
-  
   @ApiBody({
     schema: {
       type: 'object',
@@ -31,22 +32,35 @@ export class CloudinaryController {
       },
     },
   })
-  @UseInterceptors(FileInterceptor('file')) // 'file' là tên key trong Postman
+  @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @UploadedFile() file: Express.Multer.File,
-    @Query('folder') folder: string = 'others' // <--- 2. MỚI: Nhận tham số folder (Mặc định là 'others')
+    @Query('folder') folderQuery: string = 'others', // Folder do người dùng gửi lên
+    @Req() req: any // <--- Lấy thông tin người dùng đang đăng nhập
   ) {
     if (!file) {
       throw new BadRequestException('Chưa chọn file ảnh!');
     }
+
+    // --- LOGIC BẢO MẬT FOLDER (CHỐT CHẶN 2) ---
+    let targetFolder = folderQuery;
+
+    // Nếu là TENANT -> Ép cứng folder, không cho chọn linh tinh
+    // Tenant chỉ được up ảnh đại diện hoặc ảnh chuyển khoản
+    if (req.user.role === Role.TENANT) {
+        // Tùy logic của bạn, ví dụ ép hết vào 'tenant_uploads' cho an toàn
+        targetFolder = 'tenant_uploads'; 
+    }
     
-    // 3. Gọi service upload kèm theo tên folder (Giang nhớ update cả bên Service nhé)
-    const result = await this.cloudinaryService.uploadFile(file, folder);
+    // Nếu là ADMIN -> Giữ nguyên folder họ muốn (rooms, contracts, branches...)
+
+    // Gọi service
+    const result = await this.cloudinaryService.uploadFile(file, targetFolder);
     
-    // Trả về URL ảnh
     return {
       url: result.secure_url,
-      publicId: result.public_id
+      publicId: result.public_id,
+      folder: targetFolder // Trả về để biết rốt cuộc nó nằm ở đâu
     };
   }
 }
