@@ -7,8 +7,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client'; // 1. Import Role từ Prisma
 
 // 2. Import 2 file bảo vệ bạn vừa tạo
-import { RolesGuard } from '../auth/guard/roles.guard';       // Folder là 'guard'
-import { Roles } from '../auth/decorator/roles.decorator';
+import { RolesGuard } from '../../auth/guard/roles.guard';       // Folder là 'guard'
+import { Roles } from '../../auth/decorator/roles.decorator';
 @ApiTags('Room - Quản lý Phòng')
 @ApiBearerAuth()
 // 3. Kích hoạt cả 2 lớp bảo vệ: Login (AuthGuard) VÀ Phân quyền (RolesGuard)

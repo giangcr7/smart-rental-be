@@ -7,8 +7,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client'; // Import Role
 
 // Import bộ 3 bảo vệ
-import { RolesGuard } from '../auth/guard/roles.guard';
-import { Roles } from '../auth/decorator/roles.decorator';
+import { RolesGuard } from '../../auth/guard/roles.guard';
+import { Roles } from '../../auth/decorator/roles.decorator';
 @ApiTags('Contract - Quản lý Hợp đồng')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard) // <--- FIX 1: Kích hoạt RolesGuard

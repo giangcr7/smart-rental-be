@@ -7,8 +7,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client'; // Import Role
 
 // Import bộ đôi bảo vệ
-import{ RolesGuard } from '../auth/guard/roles.guard';
-import { Roles } from '../auth/decorator/roles.decorator';
+import{ RolesGuard } from '../../auth/guard/roles.guard';
+import { Roles } from '../../auth/decorator/roles.decorator';
 
 @ApiTags('Invoice - Quản lý Hóa đơn')
 @ApiBearerAuth()

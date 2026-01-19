@@ -5,8 +5,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client'; // Import Role
 
 // Import bảo vệ
-import{ RolesGuard } from '../auth/guard/roles.guard';
-import { Roles } from '../auth/decorator/roles.decorator';
+import{ RolesGuard } from '../../auth/guard/roles.guard';
+import { Roles } from '../../auth/decorator/roles.decorator';
 @ApiTags('Statistics - Thống kê Dashboard')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard) // 1. Kích hoạt bảo vệ

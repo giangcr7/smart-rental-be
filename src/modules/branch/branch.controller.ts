@@ -7,8 +7,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client'; // 1. Import Role
 
 // 2. Import "Bộ đôi bảo vệ"
-import{ RolesGuard } from '../auth/guard/roles.guard';
-import { Roles } from '../auth/decorator/roles.decorator';
+import{ RolesGuard } from '../../auth/guard/roles.guard';
+import { Roles } from '../../auth/decorator/roles.decorator';
 @ApiTags('Branch - Quản lý Khu trọ')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard) // 3. Kích hoạt cả 2 lớp bảo vệ
