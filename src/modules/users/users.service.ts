@@ -32,7 +32,6 @@ export class UsersService {
     return this.prisma.user.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
-      // QUAN TRỌNG: Chỉ select những trường cần thiết để nhẹ API
       select: {
         id: true,
         fullName: true,
@@ -40,9 +39,7 @@ export class UsersService {
         phone: true,
         avatar: true,
         role: true,
-        fingerprintId: true, // Admin cần xem ai đã có vân tay
-        // KHÔNG SELECT faceDescriptor (Nặng)
-        // KHÔNG SELECT password (Bảo mật)
+        fingerprintId: true, 
       }
     });
   }

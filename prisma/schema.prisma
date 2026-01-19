@@ -9,7 +9,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ... (Giữ nguyên các Enum RoomStatus, ContractStatus, InvoiceStatus, Role)
+// --- ENUMS ---
 enum RoomStatus {
   AVAILABLE
   OCCUPIED
@@ -33,19 +33,41 @@ enum Role {
   TENANT
 }
 
+// Enum phương thức ra vào (Cho AI/IoT)
+enum AccessMethod {
+  FACE_ID
+  FINGERPRINT
+  CARD
+  PASSWORD
+}
+
+// --- MODELS ---
+
 model Branch {
   id        Int      @id @default(autoincrement())
   name      String
   address   String
   manager   String
   
-  image     String?  // <--- MỚI: Link ảnh cổng hoặc toàn cảnh khu trọ
+  image     String?  // Ảnh cổng/toàn cảnh
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
 
   rooms     Room[]
+  devices   Device[] // <--- MỚI: Danh sách thiết bị (Cam/Vân tay) tại chi nhánh này
+}
+
+// <--- MỚI: Bảng quản lý thiết bị IoT
+model Device {
+  id        String   @id // ID phần cứng (VD: "ESP32_GATE_01")
+  name      String   // Tên thiết bị (VD: "Cổng chính Cầu Giấy")
+  branchId  Int
+  isActive  Boolean  @default(true)
+  
+  branch    Branch   @relation(fields: [branchId], references: [id])
+  logs      AccessLog[] // Lịch sử ra vào tại thiết bị này
 }
 
 model Room {
@@ -55,7 +77,7 @@ model Room {
   area        Float?
   status      RoomStatus @default(AVAILABLE)
   
-  image       String?    // <--- MỚI: Link ảnh phòng (Thumbnail)
+  image       String?    // Ảnh phòng
   
   branchId    Int
   createdAt   DateTime   @default(now())
@@ -76,20 +98,36 @@ model User {
   identityCard  String?  @unique 
   role          Role     @default(TENANT)
   
-  avatar        String?  // <--- MỚI: Link ảnh đại diện (Avatar)
+  avatar        String?  // Avatar
   
-  // Data cho AI & IoT
-  faceDescriptor Float[] 
-  fingerprintId  Int?     @unique
+  // --- DATA CHO AI & IOT ---
+  faceDescriptor Float[] // Vector khuôn mặt (128 chiều)
+  fingerprintId  Int?     @unique // ID vân tay (lưu trên AS608)
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   deletedAt     DateTime?
 
   contracts     Contract[]
+  accessLogs    AccessLog[] // <--- MỚI: Lịch sử ra vào của user này
 }
 
-// ... (Giữ nguyên model Contract)
+// <--- MỚI: Bảng lịch sử ra vào (Quan trọng để chấm công/an ninh)
+model AccessLog {
+  id          Int          @id @default(autoincrement())
+  checkInAt   DateTime     @default(now())
+  method      AccessMethod @default(FINGERPRINT)
+  
+  // Thông tin thêm (VD: Độ chính xác AI là 98%)
+  note        String?      
+  
+  userId      Int
+  deviceId    String?      // Vào từ cổng nào?
+
+  user        User         @relation(fields: [userId], references: [id])
+  device      Device?      @relation(fields: [deviceId], references: [id])
+}
+
 model Contract {
   id        Int            @id @default(autoincrement())
   startDate DateTime
@@ -97,7 +135,7 @@ model Contract {
   deposit   Decimal        @db.Decimal(10, 2)
   status    ContractStatus @default(ACTIVE)
   
-  scanImage String?        // <--- MỚI: Link ảnh chụp hợp đồng giấy đã ký
+  scanImage String?        // Ảnh hợp đồng giấy
   
   userId    Int
   roomId    Int
@@ -108,7 +146,7 @@ model Contract {
   user      User           @relation(fields: [userId], references: [id])
   room      Room           @relation(fields: [roomId], references: [id])
 }
-// ... (Giữ nguyên model Invoice)
+
 model Invoice {
   id             Int           @id @default(autoincrement())
   month          Int
@@ -123,7 +161,7 @@ model Invoice {
   totalAmount    Decimal       @db.Decimal(10, 2)
   status         InvoiceStatus @default(UNPAID)
   
-  paymentProof   String?       // <--- MỚI (Optional): Ảnh chụp màn hình chuyển khoản
+  paymentProof   String?       // Ảnh chuyển khoản
   
   roomId         Int
   createdAt      DateTime      @default(now())

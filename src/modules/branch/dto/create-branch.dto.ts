@@ -23,7 +23,6 @@ export class CreateBranchDto {
     required: false 
   })
   @IsString()
-  @IsOptional() // Không bắt buộc, có thể để trống
+  @IsOptional() 
   image?: string;
-  // -----------------------------------------------
 }
