@@ -1,56 +1,69 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { RoomStatus, InvoiceStatus, Role } from '@prisma/client'; // Import Role
+import { RoomStatus, InvoiceStatus, Role } from '@prisma/client';
 
 @Injectable()
 export class StatisticsService {
   constructor(private prisma: PrismaService) {}
 
   async getDashboardStats() {
-    const currentMonth = new Date().getMonth() + 1;
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear = now.getFullYear();
 
-    // CHẠY SONG SONG 5 CÂU LỆNH (Tốc độ ánh sáng ⚡)
+    // 1. LẤY DỮ LIỆU DOANH THU 6 THÁNG GẦN NHẤT (Cho biểu đồ cột)
+    const chartData: { name: string; total: number }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      // Lùi lại i tháng tính từ tháng hiện tại
+      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const m = targetDate.getMonth() + 1;
+      const y = targetDate.getFullYear();
+
+      const monthlySum = await this.prisma.invoice.aggregate({
+        _sum: { totalAmount: true },
+        where: {
+          status: InvoiceStatus.PAID,
+          month: m,
+          year: y,
+          deletedAt: null,
+        },
+      });
+
+      chartData.push({
+        name: `T${m}/${y.toString().slice(-2)}`, // Định dạng: T1/26
+        total: Number(monthlySum._sum.totalAmount) || 0,
+      });
+    }
+
+    // 2. CHẠY SONG SONG CÁC CHỈ SỐ TỔNG QUAN (Tối ưu hiệu năng ⚡)
     const [
       totalBranches,
       totalRooms,
       availableRooms,
       totalTenants,
-      revenueData,
-      debtData // Thêm cái này: Tiền người ta đang nợ mình
+      currentDebt
     ] = await Promise.all([
-      // 1. Tổng chi nhánh
+      // Tổng chi nhánh
       this.prisma.branch.count({ where: { deletedAt: null } }),
 
-      // 2. Tổng phòng
+      // Tổng phòng
       this.prisma.room.count({ where: { deletedAt: null } }),
 
-      // 3. Phòng trống
+      // Phòng trống
       this.prisma.room.count({ 
         where: { status: RoomStatus.AVAILABLE, deletedAt: null } 
       }),
 
-      // 4. Khách thuê (Dùng Enum Role.TENANT cho chuẩn)
+      // Khách thuê
       this.prisma.user.count({
         where: { role: Role.TENANT, deletedAt: null }
       }),
 
-      // 5. Doanh thu THỰC TẾ tháng này (Đã đóng tiền)
+      // Công nợ tháng này (Các hóa đơn chưa đóng tiền)
       this.prisma.invoice.aggregate({
         _sum: { totalAmount: true },
         where: {
-          status: InvoiceStatus.PAID,
-          month: currentMonth,
-          year: currentYear,
-          deletedAt: null,
-        },
-      }),
-
-      // 6. Công nợ THÁNG NÀY (Chưa đóng tiền)
-      this.prisma.invoice.aggregate({
-        _sum: { totalAmount: true },
-        where: {
-          status: InvoiceStatus.UNPAID, // Những hóa đơn chưa thanh toán
+          status: InvoiceStatus.UNPAID,
           month: currentMonth,
           year: currentYear,
           deletedAt: null,
@@ -58,14 +71,12 @@ export class StatisticsService {
       }),
     ]);
 
-    // Tính toán số liệu phụ
+    // Tính toán các thông số bổ sung
     const rentedRooms = totalRooms - availableRooms;
-    
-    // Xử lý null (nếu không có hóa đơn nào)
-    // Lưu ý: Prisma trả về Decimal, nên convert sang Number hoặc để nguyên tùy Frontend
-    const revenueAmount = Number(revenueData._sum.totalAmount) || 0;
-    const debtAmount = Number(debtData._sum.totalAmount) || 0;
+    const revenueAmount = chartData[chartData.length - 1].total; // Doanh thu tháng hiện tại (phần tử cuối mảng chart)
+    const debtAmount = Number(currentDebt._sum.totalAmount) || 0;
 
+    // 3. TRẢ VỀ CẤU TRÚC DỮ LIỆU CHUẨN CHO FRONTEND
     return {
       overview: {
         branches: totalBranches,
@@ -80,9 +91,10 @@ export class StatisticsService {
       finance: {
         month: currentMonth,
         year: currentYear,
-        revenue: revenueAmount, // Tiền đã bỏ túi
-        debt: debtAmount,       // Tiền cần đi đòi
-        totalExpected: revenueAmount + debtAmount // Tổng doanh thu dự kiến
+        revenue: revenueAmount,     // Tiền đã thu thực tế tháng này
+        debt: debtAmount,           // Tiền khách còn nợ tháng này
+        totalExpected: revenueAmount + debtAmount, // Doanh thu lý tưởng
+        chartData: chartData        // Mảng 6 tháng dùng cho biểu đồ BarChart
       }
     };
   }

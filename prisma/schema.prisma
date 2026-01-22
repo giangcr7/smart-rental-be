@@ -40,7 +40,11 @@ enum AccessMethod {
   CARD
   PASSWORD
 }
-
+// phuong thuc thanh cong hay that bai
+enum AccessStatus {
+  SUCCESS
+  FAILED
+}
 // --- MODELS ---
 
 model Branch {
@@ -123,7 +127,7 @@ model AccessLog {
   
   userId      Int
   deviceId    String?      // Vào từ cổng nào?
-
+status    AccessStatus @default(SUCCESS)
   user        User         @relation(fields: [userId], references: [id])
   device      Device?      @relation(fields: [deviceId], references: [id])
 }
