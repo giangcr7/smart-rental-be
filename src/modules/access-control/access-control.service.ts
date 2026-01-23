@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { firstValueFrom } from 'rxjs';
@@ -30,12 +30,17 @@ export class AccessControlService {
         throw new BadRequestException('Không tìm thấy khuôn mặt trong ảnh');
       }
 
-      await this.prisma.user.update({
+      // Cập nhật và lấy lại thông tin user để trả về Frontend
+      const updatedUser = await this.prisma.user.update({
         where: { id: userId },
         data: { faceDescriptor: response.data.encoding },
       });
 
-      return { message: 'Đăng ký khuôn mặt thành công' };
+      // TRẢ VỀ CẢ DATA ĐỂ FRONTEND CẬP NHẬT ICON TẤM KHIÊN
+      return { 
+        message: 'Đăng ký khuôn mặt thành công', 
+        faceDescriptor: updatedUser.faceDescriptor 
+      };
     } catch (error) {
       throw new BadRequestException('Lỗi trích xuất: ' + error.message);
     }
@@ -43,31 +48,27 @@ export class AccessControlService {
 
   // --- HÀM 2: NHẬN DIỆN MỞ CỔNG ---
   async verifyFaceWithAI(file: Express.Multer.File) {
-    // 1. Lấy tất cả User ĐÃ CÓ khuôn mặt (Sửa lỗi Prisma query mảng ở đây)
+    // 1. Lấy tất cả cư dân có dữ liệu mặt (Dùng NOT equals [] để lọc chính xác trong Postgres)
     const usersWithFace = await this.prisma.user.findMany({
       where: {
-        NOT: {
-          faceDescriptor: {
-            equals: [], // Loại bỏ mảng rỗng
-          },
+        faceDescriptor: {
+          isEmpty: false // Prisma hỗ trợ kiểm tra mảng rỗng cho PostgreSQL
         },
         deletedAt: null,
       },
-      select: { id: true, faceDescriptor: true },
+      select: { id: true, fullName: true, faceDescriptor: true },
     });
 
     if (usersWithFace.length === 0) {
       throw new BadRequestException('Hệ thống chưa có dữ liệu khuôn mặt mẫu nào.');
     }
 
-    // 2. Chuẩn bị FormData gửi sang Python
     const formData = new FormData();
     formData.append('file', file.buffer, {
       filename: file.originalname,
       contentType: file.mimetype,
     });
 
-    // --- QUAN TRỌNG: Gửi kèm danh sách vector để AI so sánh ---
     formData.append(
       'known_encodings',
       JSON.stringify(
@@ -79,7 +80,6 @@ export class AccessControlService {
     );
 
     try {
-      // 3. Gọi Python AI verify
       const response = await firstValueFrom(
         this.httpService.post('http://localhost:8000/verify', formData, {
           headers: { ...formData.getHeaders() },
@@ -88,21 +88,26 @@ export class AccessControlService {
 
       if (response.data.status === 'success') {
         const userId = response.data.userId;
+        const matchedUser = usersWithFace.find(u => u.id === userId);
 
-        // 4. Lưu log vào DB
+        // Ghi nhật ký ra vào chuẩn xác vào bảng AccessLog
         await this.prisma.accessLog.create({
           data: {
             userId: userId,
             method: 'FACE_ID',
             status: 'SUCCESS',
-            note: `Khớp với User ID: ${userId}`,
+            note: `Khớp với cư dân: ${matchedUser?.fullName}`,
           },
         });
 
-        return { success: true, message: 'Mở cổng thành công!', userId };
+        return { 
+          status: 'success', // Đổi thành success để khớp với FaceVerifyModal.tsx
+          fullName: matchedUser?.fullName,
+          userId 
+        };
       }
 
-      return { success: false, message: 'Khuôn mặt không hợp lệ' };
+      return { status: 'fail', message: 'Khuôn mặt không khớp với cư dân nào' };
     } catch (error) {
       console.error('Lỗi AI Service:', error.message);
       throw new BadRequestException('Máy chủ nhận diện không phản hồi');

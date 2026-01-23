@@ -10,7 +10,7 @@ import { ApiTags, ApiConsumes, ApiBody, ApiOperation } from '@nestjs/swagger';
 export class AccessControlController {
   constructor(private readonly accessControlService: AccessControlService) {}
 
-  @Post('check-in')
+  @Post('verify-face')
   @ApiOperation({ summary: 'Nhận diện khuôn mặt để mở cổng' })
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')

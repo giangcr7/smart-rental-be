@@ -11,47 +11,75 @@ import { RolesGuard } from '../../auth/guard/roles.guard';
 import { Roles } from '../../auth/decorator/roles.decorator';
 @ApiTags('Contract - Quản lý Hợp đồng')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard) // <--- FIX 1: Kích hoạt RolesGuard
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('contracts')
 export class ContractController {
   constructor(private readonly contractService: ContractService) {}
 
-  // --- NHÓM ADMIN (Quyền sinh sát) ---
+  // --- 1. NHÓM ROUTE TĨNH (PHẢI ĐẶT TRÊN CÙNG) ---
+
+  @Get('deleted')
+  @Roles(Role.ADMIN) 
+  @ApiOperation({ summary: 'Lấy danh sách hợp đồng đã xóa mềm (Chỉ Admin)' })
+  findDeleted() {
+    return this.contractService.findDeleted();
+  }
+
+  // --- 2. NHÓM TẠO MỚI & DANH SÁCH CHÍNH ---
 
   @Post()
-  @Roles(Role.ADMIN) // <--- FIX 2: Chỉ Admin mới được tạo HĐ
+  @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Tạo hợp đồng thuê mới (Chỉ Admin)' })
   create(@Body() createContractDto: CreateContractDto) {
     return this.contractService.create(createContractDto);
   }
 
+  @Get()
+  @ApiOperation({ summary: 'Xem danh sách (Phân quyền theo User)' })
+  findAll(@Req() req) {
+    return this.contractService.findAll(req.user); 
+  }
+
+  // --- 3. NHÓM ROUTE CÓ THAM SỐ :id (PHẢI ĐẶT DƯỚI CÙNG) ---
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Xem chi tiết hợp đồng' })
+  findOne(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    return this.contractService.findOne(id, req.user);
+  }
+
   @Patch(':id')
-  @Roles(Role.ADMIN) // <--- FIX 3: Chỉ Admin mới sửa (gia hạn, đổi tiền cọc)
+  @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Sửa thông tin hợp đồng (Chỉ Admin)' })
   update(@Param('id', ParseIntPipe) id: number, @Body() updateContractDto: UpdateContractDto) {
     return this.contractService.update(id, updateContractDto);
   }
 
   @Patch(':id/terminate')
-  @Roles(Role.ADMIN) // <--- FIX 4: Chỉ Admin mới được thanh lý
+  @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Thanh lý hợp đồng & Trả phòng (Chỉ Admin)' })
   terminate(@Param('id', ParseIntPipe) id: number) {
     return this.contractService.terminate(id);
   }
 
-  // --- NHÓM XEM (Thông minh hơn) ---
-
-  @Get()
-  @ApiOperation({ summary: 'Xem danh sách (Admin thấy hết - Tenant chỉ thấy của mình)' })
-  findAll(@Req() req) { // <--- FIX 5: Lấy thông tin người đang request
-    // Truyền user xuống Service để lọc dữ liệu
-    return this.contractService.findAll(req.user); 
+  @Patch(':id/restore')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Khôi phục hợp đồng từ thùng rác' })
+  restore(@Param('id', ParseIntPipe) id: number) {
+    return this.contractService.restore(id);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Xem chi tiết hợp đồng' })
-  findOne(@Param('id', ParseIntPipe) id: number, @Req() req) {
-    // Truyền user xuống để check: Tenant A không được xem HĐ của Tenant B
-    return this.contractService.findOne(id, req.user);
+  @Delete(':id')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Xóa mềm hợp đồng (Đưa vào thùng rác)' })
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.contractService.remove(id);
+  }
+
+  @Delete(':id/permanent')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Xóa vĩnh viễn hợp đồng khỏi hệ thống' })
+  hardDelete(@Param('id', ParseIntPipe) id: number) {
+    return this.contractService.hardDelete(id);
   }
 }
