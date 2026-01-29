@@ -1,8 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe, Query } from '@nestjs/common';
 import { RoomService } from './room.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
 
@@ -16,31 +16,27 @@ import { Roles } from '../../auth/decorator/roles.decorator';
 export class RoomController {
   constructor(private readonly roomService: RoomService) {}
 
-  // --- 1. NHÓM ROUTE TĨNH (PHẢI ĐẶT TRÊN CÙNG) ---
-
-  @Get('deleted') // GET /rooms/deleted
+  @Get('deleted')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Lấy danh sách phòng đã xóa mềm (Chỉ Admin)' })
-  findDeleted() {
-    return this.roomService.findDeleted();
+  @ApiOperation({ summary: 'Lấy danh sách phòng đã xóa mềm' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number })
+  findDeleted(@Query('branchId') branchId?: string) {
+    return this.roomService.findDeleted(branchId ? +branchId : undefined);
   }
-
-  // --- 2. NHÓM TẠO MỚI & LẤY TẤT CẢ ---
 
   @Post()
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Thêm phòng mới (Chỉ Admin)' })
+  @ApiOperation({ summary: 'Thêm phòng mới' })
   create(@Body() createRoomDto: CreateRoomDto) {
     return this.roomService.create(createRoomDto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'Lấy danh sách tất cả phòng đang hoạt động' })
-  findAll() {
-    return this.roomService.findAll();
+  @ApiOperation({ summary: 'Lấy danh sách phòng (Có lọc chi nhánh)' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number })
+  findAll(@Query('branchId') branchId?: string) {
+    return this.roomService.findAll(branchId ? +branchId : undefined);
   }
-
-  // --- 3. NHÓM ROUTE CÓ THAM SỐ :id (PHẢI ĐẶT DƯỚI CÙNG) ---
 
   @Get(':id')
   @ApiOperation({ summary: 'Xem chi tiết phòng' })
@@ -50,28 +46,28 @@ export class RoomController {
 
   @Patch(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Sửa thông tin phòng (Chỉ Admin)' })
+  @ApiOperation({ summary: 'Sửa thông tin phòng' })
   update(@Param('id', ParseIntPipe) id: number, @Body() updateRoomDto: UpdateRoomDto) {
     return this.roomService.update(id, updateRoomDto);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Xóa mềm phòng (Đưa vào thùng rác)' })
+  @ApiOperation({ summary: 'Xóa mềm phòng' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.roomService.remove(id);
   }
 
-  @Patch(':id/restore') // PATCH /rooms/:id/restore
+  @Patch(':id/restore')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Khôi phục phòng từ thùng rác' })
+  @ApiOperation({ summary: 'Khôi phục phòng' })
   restore(@Param('id', ParseIntPipe) id: number) {
     return this.roomService.restore(id);
   }
 
-  @Delete(':id/permanent') // DELETE /rooms/:id/permanent
+  @Delete(':id/permanent')
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Xóa vĩnh viễn phòng khỏi database' })
+  @ApiOperation({ summary: 'Xóa vĩnh viễn phòng' })
   hardDelete(@Param('id', ParseIntPipe) id: number) {
     return this.roomService.hardDelete(id);
   }

@@ -35,15 +35,16 @@ enum Role {
 
 // Enum phương thức ra vào (Cho AI/IoT)
 enum AccessMethod {
-  FACE_ID
   FINGERPRINT
-  CARD
-  PASSWORD
+  FACE_ID
+  PASSCODE
+  RFID
 }
-// phuong thuc thanh cong hay that bai
+
 enum AccessStatus {
   SUCCESS
   FAILED
+  DENIED // Dùng khi tài khoản bị khóa (isActive: false)
 }
 // --- MODELS ---
 
@@ -65,15 +66,15 @@ model Branch {
 
 // <--- MỚI: Bảng quản lý thiết bị IoT
 model Device {
-  id        String   @id // ID phần cứng (VD: "ESP32_GATE_01")
-  name      String   // Tên thiết bị (VD: "Cổng chính Cầu Giấy")
+  id        String      @id // Ví dụ: WEB_CAM_GIANG
+  name      String
+  type      String      // Thêm dòng này nếu chưa có
   branchId  Int
-  isActive  Boolean  @default(true)
-  
-  branch    Branch   @relation(fields: [branchId], references: [id])
-  logs      AccessLog[] // Lịch sử ra vào tại thiết bị này
+  branch    Branch      @relation(fields: [branchId], references: [id])
+  logs      AccessLog[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 }
-
 model Room {
   id          Int        @id @default(autoincrement())
   roomNumber  String
@@ -81,7 +82,13 @@ model Room {
   area        Float?
   status      RoomStatus @default(AVAILABLE)
   
-  image       String?    // Ảnh phòng
+  // Thông tin truyền thông
+  image       String?    // Ảnh đại diện phòng
+  video       String?    // URL Video giới thiệu (Cloudinary/Youtube)
+  
+  // Mô tả chi tiết và tiện ích
+  description String?    @db.Text
+  utilities   String[]   // Danh sách tiện ích (Ví dụ: ["Điều hòa", "Máy giặt", "Ban công"])
   
   branchId    Int
   createdAt   DateTime   @default(now())
@@ -92,7 +99,6 @@ model Room {
   contracts Contract[]
   invoices  Invoice[]
 }
-
 model User {
   id            Int      @id @default(autoincrement())
   email         String   @unique 
@@ -113,25 +119,31 @@ model User {
   deletedAt     DateTime?
 
   contracts     Contract[]
-  accessLogs    AccessLog[] // <--- MỚI: Lịch sử ra vào của user này
+  accessLogs    AccessLog[]
+  isActive  Boolean  @default(true) // Mặc định là mở khóa
 }
 
 // <--- MỚI: Bảng lịch sử ra vào (Quan trọng để chấm công/an ninh)
 model AccessLog {
   id          Int          @id @default(autoincrement())
-  checkInAt   DateTime     @default(now())
+  createdAt   DateTime     @default(now()) // Tên phổ thông hơn checkInAt
   method      AccessMethod @default(FINGERPRINT)
+  status      AccessStatus @default(SUCCESS)
   
-  // Thông tin thêm (VD: Độ chính xác AI là 98%)
+  // Lưu độ tin cậy của AI (confidence) hoặc lý do từ chối
   note        String?      
   
+  // Quan hệ với người dùng
   userId      Int
-  deviceId    String?      // Vào từ cổng nào?
-status    AccessStatus @default(SUCCESS)
-  user        User         @relation(fields: [userId], references: [id])
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Vào từ cổng nào? (Ví dụ: "Cổng chính", "Cửa tầng 2")
+  deviceId    String?      
   device      Device?      @relation(fields: [deviceId], references: [id])
-}
 
+  @@index([userId])
+  @@index([createdAt])
+}
 model Contract {
   id        Int            @id @default(autoincrement())
   startDate DateTime

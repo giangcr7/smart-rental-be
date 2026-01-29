@@ -3,7 +3,6 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-// Dữ liệu cấu hình
 const BRANCHES = [
   { name: 'Happy House Cầu Giấy', address: 'Số 12, Ngõ 34 Cầu Giấy, Hà Nội', img: 'https://res.cloudinary.com/demo/image/upload/v1/sample/architecture' },
   { name: 'Dream Home Đống Đa', address: '102 Chùa Láng, Đống Đa, Hà Nội', img: 'https://res.cloudinary.com/demo/image/upload/v1/sample/landscapes/architecture-signs' },
@@ -22,14 +21,15 @@ const randomElement = <T>(array: T[]): T => array[Math.floor(Math.random() * arr
 const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 async function main() {
-  console.log('🌱 Bắt đầu Seeding với mật khẩu Hash (123456)...');
+  console.log('🌱 Bắt đầu Seeding với đa chi nhánh và thiết bị...');
 
-  // 1. Chuẩn bị mật khẩu Hash
   const saltRounds = 10;
   const commonPassword = await bcrypt.hash('123456', saltRounds);
 
-  // 2. Dọn dẹp dữ liệu cũ
+  // 1. Dọn dẹp dữ liệu cũ
   try {
+    await prisma.accessLog.deleteMany(); // Phải dọn log trước vì nó phụ thuộc Device
+    await prisma.device.deleteMany();    // Dọn thiết bị cũ
     await prisma.invoice.deleteMany();
     await prisma.contract.deleteMany();
     await prisma.room.deleteMany();
@@ -39,7 +39,7 @@ async function main() {
     console.log('⚠️ Bỏ qua bước dọn dẹp.');
   }
 
-  // 3. Tạo Admin (Mật khẩu: 123456)
+  // 2. Tạo Admin
   console.log('👤 Đang tạo Admin...');
   await prisma.user.create({
     data: {
@@ -49,12 +49,10 @@ async function main() {
       phone: '0988123456',
       role: Role.ADMIN,
       avatar: 'https://res.cloudinary.com/demo/image/upload/v1/sample/people/smiling-man.jpg',
-      faceDescriptor: [],
     },
   });
 
-  // 4. Tạo 50 Tenants (Mật khẩu: 123456)
-  console.log('👥 Đang tạo 50 khách thuê...');
+  // 3. Tạo 50 Tenants
   const tenants: User[] = []; 
   for (let i = 1; i <= 50; i++) {
     const ho = randomElement(LAST_NAMES);
@@ -67,14 +65,13 @@ async function main() {
         phone: `09${randomInt(10000000, 99999999)}`,
         role: Role.TENANT,
         avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${i}`,
-        faceDescriptor: [],
       },
     });
     tenants.push(user);
   }
 
-  // 5. Tạo Branch & Room
-  console.log('🏢 Đang tạo Chi nhánh & Phòng...');
+  // 4. Tạo Branch, Device & Room
+  console.log('🏢 Đang tạo Chi nhánh & Thiết bị ra vào...');
   for (const branchData of BRANCHES) {
     const branch = await prisma.branch.create({
       data: {
@@ -85,29 +82,38 @@ async function main() {
       },
     });
 
+    // MỚI: TẠO THIẾT BỊ CAMERA CHO MỖI CHI NHÁNH
+    // Đây là chìa khóa để hiện Lịch sử ra vào
+    const deviceId = branch.name.includes('Cầu Giấy') ? 'WEB_CAM_GIANG' : `CAM_${branch.id}`;
+    await prisma.device.create({
+      data: {
+        id: deviceId,
+        name: `Cổng chính - ${branch.name}`,
+        type: 'CAMERA',
+        branchId: branch.id
+      }
+    });
+
     const numRooms = randomInt(10, 15);
     for (let j = 1; j <= numRooms; j++) {
       const floor = Math.floor((j - 1) / 5) + 1;
       const roomNum = j % 5 === 0 ? 5 : j % 5;
       const roomNumber = `P${floor}0${roomNum}`;
       const price = randomInt(30, 50) * 100000;
-      const area = randomInt(20, 35);
 
       const room = await prisma.room.create({
         data: {
           roomNumber: roomNumber,
           price: price,
-          area: area,
+          area: randomInt(20, 35),
           status: RoomStatus.AVAILABLE,
           image: randomElement(ROOM_IMAGES),
           branchId: branch.id,
         },
       });
 
-      // 6. Tạo Hợp đồng & Hóa đơn (Lấp đầy 60% phòng)
       if (Math.random() > 0.4) {
         const tenant = randomElement(tenants);
-        
         await prisma.contract.create({
           data: {
             startDate: new Date('2025-01-01'),
@@ -116,7 +122,6 @@ async function main() {
             status: ContractStatus.ACTIVE,
             userId: tenant.id,
             roomId: room.id,
-            scanImage: "https://res.cloudinary.com/demo/image/upload/v1/sample/documents/contract.jpg"
           }
         });
 
@@ -124,33 +129,13 @@ async function main() {
           where: { id: room.id },
           data: { status: RoomStatus.OCCUPIED }
         });
-
-        await prisma.invoice.create({
-          data: {
-            month: 1,
-            year: 2025,
-            oldElectricity: 100,
-            newElectricity: 150,
-            oldWater: 20,
-            newWater: 25,
-            serviceFee: 150000,
-            totalAmount: price + 150000 + (50 * 3500) + (5 * 20000),
-            status: Math.random() > 0.5 ? InvoiceStatus.PAID : InvoiceStatus.UNPAID,
-            room: { connect: { id: room.id } }
-          }
-        });
       }
     }
   }
 
-  console.log('✅ SEEDING THÀNH CÔNG 100%!');
+  console.log('✅ SEEDING THÀNH CÔNG! ID Thiết bị test: WEB_CAM_GIANG');
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });

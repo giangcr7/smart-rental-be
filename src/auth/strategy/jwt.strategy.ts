@@ -1,5 +1,4 @@
-// src/auth/strategy/jwt.strategy.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -14,21 +13,41 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-secretOrKey: config.get('JWT_SECRET') || 'secret_mac_dinh_cho_dev',
+      secretOrKey: config.get('JWT_SECRET') || 'secret_mac_dinh_cho_dev',
     });
   }
 
   async validate(payload: any) {
-    // Payload đã decode: { sub: 1, email: '...', role: 'ADMIN', ... }
+    // Payload lúc này đã chứa: { sub, email, role, branchId } từ AuthService
     
-    // (Optional) Check kỹ xem user còn tồn tại trong DB không
+    // Tìm user trong DB để đảm bảo tính xác thực mới nhất
     const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub }
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        isActive: true,
+        deletedAt: true,
+      }
     });
     
-    // Nếu user bị xóa (soft delete), chặn luôn token cũ
-    if (!user || user.deletedAt) return null;
+    // 1. Chặn nếu user không tồn tại hoặc đã bị xóa mềm
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Tài khoản không tồn tại hoặc đã bị xóa');
+    }
 
-    return user; // Gán user vào req.user
+    // 2. Chặn nếu tài khoản bị khóa (Ví dụ do nợ phí)
+    if (!user.isActive) {
+      throw new UnauthorizedException('Tài khoản đang bị tạm khóa');
+    }
+
+    // 3. QUAN TRỌNG: Gán thêm branchId từ Payload vào object trả về
+    // Đối tượng này chính là req.user trong các Controller
+    return {
+      ...user,
+      branchId: payload.branchId, // Bây giờ req.user.branchId sẽ khả dụng!
+    };
   }
 }

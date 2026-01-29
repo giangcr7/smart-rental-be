@@ -4,30 +4,35 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  // 1. Tạo User mới
+  // 1. TẠO USER MỚI
   async create(createUserDto: CreateUserDto) {
     const exist = await this.prisma.user.findFirst({ 
-      where: { email: createUserDto.email, deletedAt: null } // Kiểm tra email trong những user đang hoạt động
+      where: { email: createUserDto.email, deletedAt: null } 
     });
     if (exist) throw new BadRequestException('Email đã tồn tại!');
 
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    const hashedPassword = await bcrypt.hash(createUserDto.password || '123456', 10);
 
     return this.prisma.user.create({
-      data: { ...createUserDto, password: hashedPassword },
-      select: { id: true, email: true, fullName: true, role: true, createdAt: true }
+      data: { 
+        ...createUserDto, 
+        password: hashedPassword,
+        isActive: true // Mặc định mở khóa khi tạo mới
+      },
+      select: { id: true, email: true, fullName: true, role: true, isActive: true }
     });
   }
 
-  // 2. Lấy danh sách (Admin only)
+  // 2. LẤY DANH SÁCH (Bổ sung isActive để FE hiển thị ổ khóa)
   findAll() {
     return this.prisma.user.findMany({
-      where: { deletedAt: null }, // Đã có lọc xóa mềm
+      where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -36,41 +41,38 @@ export class UsersService {
         phone: true,
         avatar: true,
         role: true,
+        isActive: true, // QUAN TRỌNG: Trả về để hiện Badge xanh/đỏ
         fingerprintId: true, 
         faceDescriptor: true,
       }
     });
   }
 
-  // 3. Xem chi tiết (Cập nhật để chặn xem User đã xóa)
+  // 3. XEM CHI TIẾT
   async findOne(id: number, currentUser: any) {
     if (currentUser.role !== Role.ADMIN && currentUser.id !== id) {
       throw new ForbiddenException('Không có quyền xem thông tin người khác');
     }
 
     const user = await this.prisma.user.findFirst({
-      where: { id, deletedAt: null }, // PHẢI thêm deletedAt: null ở đây
+      where: { id, deletedAt: null },
     });
 
-    if (!user) throw new NotFoundException('User không tồn tại hoặc đã bị xóa');
+    if (!user) throw new NotFoundException('User không tồn tại');
 
     const { password, ...result } = user;
     return result; 
   }
 
-  // 4. Cập nhật (Cập nhật để chặn sửa User đã xóa)
+  // 4. CẬP NHẬT THÔNG TIN
   async update(id: number, updateUserDto: UpdateUserDto, currentUser: any) {
     const existingUser = await this.prisma.user.findFirst({
       where: { id, deletedAt: null }
     });
-    if (!existingUser) throw new NotFoundException('User không tồn tại hoặc đã bị xóa');
+    if (!existingUser) throw new NotFoundException('User không tồn tại');
 
     if (currentUser.role !== Role.ADMIN && currentUser.id !== id) {
       throw new ForbiddenException('Không có quyền sửa thông tin người khác');
-    }
-
-    if (currentUser.role !== Role.ADMIN && updateUserDto.role) {
-       throw new ForbiddenException('Bạn không được phép tự thăng chức!');
     }
 
     if (updateUserDto.password) {
@@ -86,12 +88,56 @@ export class UsersService {
     return result;
   }
 
-  // 5. Xóa mềm (Đảm bảo không xóa người đã xóa rồi)
-  async remove(id: number) {
-    const user = await this.prisma.user.findFirst({
-      where: { id, deletedAt: null }
+  // 5. KHÓA/MỞ KHÓA THỦ CÔNG (ADMIN VẶN Ổ KHÓA)
+  async toggleUserStatus(id: number, isActive: boolean) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) throw new NotFoundException('Người dùng không tồn tại');
+    
+    if (user.role === Role.ADMIN && isActive === false) {
+      throw new BadRequestException('Không thể khóa tài khoản Admin!');
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { isActive },
     });
-    if (!user) throw new NotFoundException('User không tồn tại hoặc đã bị xóa từ trước');
+  }
+
+  // 6. TỰ ĐỘNG KHÓA KHI HẾT HẠP ĐỒNG (CRON JOB)
+  // Quét vào lúc 00:00 mỗi ngày
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async handleAutoLockExpiredContracts() {
+    console.log('--- [Hệ thống] Bắt đầu quét hợp đồng hết hạn để khóa tài khoản ---');
+    const now = new Date();
+
+    // Tìm những Tenant đang hoạt động nhưng tất cả hợp đồng đã kết thúc
+    const expiredUsers = await this.prisma.user.findMany({
+      where: {
+        role: Role.TENANT,
+        isActive: true,
+        deletedAt: null,
+        contracts: {
+          every: {
+            endDate: { lt: now },
+          },
+        },
+      },
+    });
+
+    if (expiredUsers.length > 0) {
+      const idsToLock = expiredUsers.map(u => u.id);
+      await this.prisma.user.updateMany({
+        where: { id: { in: idsToLock } },
+        data: { isActive: false },
+      });
+      console.log(`✅ Đã khóa tự động ${idsToLock.length} tài khoản.`);
+    }
+  }
+
+  // 7. XÓA MỀM (CHO VÀO THÙNG RÁC)
+  async remove(id: number) {
+    const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
+    if (!user) throw new NotFoundException('User không tồn tại');
 
     return this.prisma.user.update({
       where: { id },
@@ -99,43 +145,22 @@ export class UsersService {
     });
   }
 
-// 6. Lấy danh sách đã bị xóa mềm (Dùng cho Thùng rác)
-async findDeleted() {
-  return this.prisma.user.findMany({
-    where: { 
-      deletedAt: { not: null } // Lấy những người có ngày xóa khác null
-    },
-    orderBy: { deletedAt: 'desc' },
-    select: {
-      id: true,
-      fullName: true,
-      email: true,
-      phone: true,
-      deletedAt: true, // Trả về ngày xóa để UI hiển thị
-    }
-  });
-}
+  // 8. THÙNG RÁC & KHÔI PHỤC
+  async findDeleted() {
+    return this.prisma.user.findMany({
+      where: { deletedAt: { not: null } },
+      select: { id: true, fullName: true, email: true, deletedAt: true }
+    });
+  }
 
-// 7. Khôi phục người dùng
-async restore(id: number) {
-  const user = await this.prisma.user.findFirst({
-    where: { id, deletedAt: { not: null } }
-  });
-  if (!user) throw new NotFoundException('Không tìm thấy người dùng này trong thùng rác');
+  async restore(id: number) {
+    return this.prisma.user.update({
+      where: { id },
+      data: { deletedAt: null },
+    });
+  }
 
-  return this.prisma.user.update({
-    where: { id },
-    data: { deletedAt: null }, // Sét lại về null để "hồi sinh"
-  });
-}
-
-// 8. Xóa vĩnh viễn khỏi Database
-async hardDelete(id: number) {
-  const user = await this.prisma.user.findUnique({ where: { id } });
-  if (!user) throw new NotFoundException('Người dùng không tồn tại');
-
-  return this.prisma.user.delete({
-    where: { id },
-  });
-}
+  async hardDelete(id: number) {
+    return this.prisma.user.delete({ where: { id } });
+  }
 }

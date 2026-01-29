@@ -81,4 +81,10 @@ export class InvoiceController {
   hardDelete(@Param('id', ParseIntPipe) id: number) {
     return this.invoiceService.hardDelete(id);
   }
+  @Patch(':id/pay') 
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin xác nhận đã thu tiền hóa đơn' })
+  markAsPaid(@Param('id', ParseIntPipe) id: number) {
+    return this.invoiceService.markAsPaid(id);
+  }
 }

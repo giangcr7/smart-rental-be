@@ -1,14 +1,15 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe, Req, Query } from '@nestjs/common';
 import { ContractService } from './contract.service';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { Role } from '@prisma/client'; // Import Role
+import { Role } from '@prisma/client';
 
 // Import bộ 3 bảo vệ
 import { RolesGuard } from '../../auth/guard/roles.guard';
 import { Roles } from '../../auth/decorator/roles.decorator';
+
 @ApiTags('Contract - Quản lý Hợp đồng')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -20,9 +21,11 @@ export class ContractController {
 
   @Get('deleted')
   @Roles(Role.ADMIN) 
-  @ApiOperation({ summary: 'Lấy danh sách hợp đồng đã xóa mềm (Chỉ Admin)' })
-  findDeleted() {
-    return this.contractService.findDeleted();
+  @ApiOperation({ summary: 'Lấy danh sách hợp đồng đã xóa mềm (Có lọc chi nhánh)' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number })
+  findDeleted(@Query('branchId') branchId?: string) {
+    // Chuyển đổi branchId sang kiểu number trước khi gửi xuống service
+    return this.contractService.findDeleted(branchId ? +branchId : undefined);
   }
 
   // --- 2. NHÓM TẠO MỚI & DANH SÁCH CHÍNH ---
@@ -35,9 +38,11 @@ export class ContractController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Xem danh sách (Phân quyền theo User)' })
-  findAll(@Req() req) {
-    return this.contractService.findAll(req.user); 
+  @ApiOperation({ summary: 'Xem danh sách (Lọc theo User và Chi nhánh)' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number })
+  findAll(@Req() req, @Query('branchId') branchId?: string) {
+    // Truyền cả thông tin user (để phân quyền) và branchId (để lọc cơ sở)
+    return this.contractService.findAll(req.user, branchId ? +branchId : undefined); 
   }
 
   // --- 3. NHÓM ROUTE CÓ THAM SỐ :id (PHẢI ĐẶT DƯỚI CÙNG) ---

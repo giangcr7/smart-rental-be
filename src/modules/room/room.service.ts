@@ -8,56 +8,63 @@ import { RoomStatus } from '@prisma/client';
 export class RoomService {
   constructor(private prisma: PrismaService) {}
 
-  // 1. Tạo phòng mới (Chống trùng tên trong cùng chi nhánh)
+  // 1. TẠO PHÒNG MỚI
   async create(createRoomDto: CreateRoomDto) {
     const { branchId, roomNumber } = createRoomDto;
 
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, deletedAt: null },
     });
-    if (!branch) throw new NotFoundException('Chi nhánh không tồn tại hoặc đã bị xóa!');
+    if (!branch) throw new NotFoundException('Chi nhánh không tồn tại!');
 
     const existingRoom = await this.prisma.room.findFirst({
       where: { branchId, roomNumber, deletedAt: null }
     });
     if (existingRoom) {
-      throw new BadRequestException(`Phòng ${roomNumber} đã tồn tại trong chi nhánh này!`);
+      throw new BadRequestException(`Phòng ${roomNumber} đã tồn tại tại chi nhánh này!`);
     }
 
-    return this.prisma.room.create({ data: createRoomDto });
+    return this.prisma.room.create({ 
+      data: {
+        ...createRoomDto,
+        utilities: createRoomDto.utilities || [],
+      } 
+    });
   }
 
-  // 2. Lấy danh sách (Chỉ lấy phòng chưa xóa)
-  async findAll() {
+  // 2. LẤY DANH SÁCH PHÒNG (Hỗ trợ lọc đa chi nhánh)
+  async findAll(branchId?: number) {
     return this.prisma.room.findMany({
-      where: { deletedAt: null },
+      where: { 
+        deletedAt: null,
+        ...(branchId ? { branchId: Number(branchId) } : {}),
+      },
       include: { branch: true },
       orderBy: { roomNumber: 'asc' },
     });
   }
 
-  // 3. Xem chi tiết
+  // 3. XEM CHI TIẾT PHÒNG
   async findOne(id: number) {
     const room = await this.prisma.room.findFirst({
       where: { id, deletedAt: null },
       include: { branch: true },
     });
-    if (!room) throw new NotFoundException(`Phòng ID ${id} không tồn tại hoặc đã bị xóa!`);
+    if (!room) throw new NotFoundException(`Phòng ID ${id} không tồn tại!`);
     return room;
   }
 
-  // 4. Cập nhật thông tin (Bao gồm check trùng tên khi đổi tên phòng)
+  // 4. CẬP NHẬT THÔNG TIN
   async update(id: number, updateRoomDto: UpdateRoomDto) {
-    const currentRoom = await this.findOne(id); // Đã bao gồm check deletedAt: null
+    const currentRoom = await this.findOne(id);
 
-    // Nếu có đổi tên phòng, phải kiểm tra xem tên mới có trùng với phòng khác không
     if (updateRoomDto.roomNumber && updateRoomDto.roomNumber !== currentRoom.roomNumber) {
       const duplicate = await this.prisma.room.findFirst({
         where: {
           branchId: updateRoomDto.branchId || currentRoom.branchId,
           roomNumber: updateRoomDto.roomNumber,
           deletedAt: null,
-          NOT: { id: id } // Không so sánh với chính nó
+          NOT: { id: id }
         }
       });
       if (duplicate) throw new BadRequestException(`Tên phòng ${updateRoomDto.roomNumber} đã tồn tại!`);
@@ -65,65 +72,63 @@ export class RoomService {
 
     return this.prisma.room.update({
       where: { id },
-      data: updateRoomDto,
+      data: {
+        ...updateRoomDto,
+        utilities: updateRoomDto.utilities ?? currentRoom.utilities,
+      },
     });
   }
 
-  // 5. Xóa mềm (Chặn xóa nếu phòng đang có người ở)
+  // 5. XÓA MỀM
   async remove(id: number) {
     const room = await this.findOne(id);
 
-    // LOGIC THỰC TẾ: Không được xóa phòng đang có hợp đồng ACTIVE (OCCUPIED)
     if (room.status === RoomStatus.OCCUPIED) {
-      throw new BadRequestException(
-        'Không thể xóa phòng đang có khách thuê! Vui lòng thanh lý hợp đồng trước khi thực hiện xóa.'
-      );
+      throw new BadRequestException('Không thể xóa phòng đang có khách thuê!');
     }
 
     return this.prisma.room.update({
       where: { id },
       data: { 
         deletedAt: new Date(),
-        // Khi xóa mềm, ta có thể đổi trạng thái về MAINTENANCE để tránh nhầm lẫn
         status: RoomStatus.MAINTENANCE 
       },
     });
   }
-  // 6. Lấy danh sách phòng đã xóa mềm (Cho Thùng rác)
-async findDeleted() {
-  return this.prisma.room.findMany({
-    where: { 
-      deletedAt: { not: null } 
-    },
-    include: { branch: true }, // Để biết phòng đó thuộc chi nhánh nào
-    orderBy: { deletedAt: 'desc' },
-  });
-}
 
-// 7. Khôi phục phòng
-async restore(id: number) {
-  const room = await this.prisma.room.findFirst({
-    where: { id, deletedAt: { not: null } }
-  });
-  if (!room) throw new NotFoundException('Không tìm thấy phòng này trong thùng rác');
+  // 6. THÙNG RÁC (Lọc theo chi nhánh)
+  async findDeleted(branchId?: number) {
+    return this.prisma.room.findMany({
+      where: { 
+        deletedAt: { not: null },
+        ...(branchId ? { branchId: Number(branchId) } : {}),
+      },
+      include: { branch: true },
+      orderBy: { deletedAt: 'desc' },
+    });
+  }
 
-  return this.prisma.room.update({
-    where: { id },
-    data: { 
-      deletedAt: null,
-      status: RoomStatus.AVAILABLE // Khôi phục về trạng thái Trống để cho thuê lại
-    },
-  });
-}
+  // 7. KHÔI PHỤC
+  async restore(id: number) {
+    const room = await this.prisma.room.findFirst({
+      where: { id, deletedAt: { not: null } }
+    });
+    if (!room) throw new NotFoundException('Không tìm thấy phòng trong thùng rác');
 
-// 8. Xóa vĩnh viễn (Hard Delete)
-async hardDelete(id: number) {
-  const room = await this.prisma.room.findUnique({ where: { id } });
-  if (!room) throw new NotFoundException('Phòng không tồn tại');
+    return this.prisma.room.update({
+      where: { id },
+      data: { 
+        deletedAt: null,
+        status: RoomStatus.AVAILABLE 
+      },
+    });
+  }
 
-  // Kiểm tra lần cuối trước khi xóa sạch dữ liệu khỏi DB
-  return this.prisma.room.delete({
-    where: { id },
-  });
-}
+  // 8. XÓA VĨNH VIỄN
+  async hardDelete(id: number) {
+    const room = await this.prisma.room.findUnique({ where: { id } });
+    if (!room) throw new NotFoundException('Phòng không tồn tại');
+
+    return this.prisma.room.delete({ where: { id } });
+  }
 }

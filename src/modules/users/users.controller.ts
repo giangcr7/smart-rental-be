@@ -79,4 +79,15 @@ export class UsersController {
   hardDelete(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.hardDelete(id);
   }
+  // src/users/users.controller.ts
+
+@Patch(':id/status') // Route này phải khớp với URL: /users/:id/status
+@Roles(Role.ADMIN)   // Đảm bảo chỉ Admin mới vặn được ổ khóa
+@ApiOperation({ summary: 'Admin khóa hoặc mở khóa tài khoản' })
+async toggleStatus(
+  @Param('id', ParseIntPipe) id: number,
+  @Body('isActive') isActive: boolean, // Lấy isActive từ body gửi lên
+) {
+  return this.usersService.toggleUserStatus(id, isActive);
+}
 }

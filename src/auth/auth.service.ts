@@ -1,4 +1,3 @@
-// src/auth/auth.service.ts
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
@@ -15,15 +14,13 @@ export class AuthService {
     private config: ConfigService,
   ) {}
 
-  // 1. Đăng ký
+  // 1. ĐĂNG KÝ (Dành cho Cư dân)
   async register(dto: RegisterDto) {
-    // Kiểm tra email trùng
     const userExists = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (userExists) throw new ForbiddenException('Email đã tồn tại trong hệ thống');
 
-    // Hash mật khẩu
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(dto.password, salt);
 
@@ -50,9 +47,9 @@ export class AuthService {
     }
   }
 
-  // 2. Đăng nhập
+  // 2. ĐĂNG NHẬP (Tích hợp tìm kiếm Chi nhánh quản lý)
   async login(dto: LoginDto) {
-    // Tìm user theo email
+    // Tìm user kèm thông tin chi nhánh nếu là Admin
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -61,20 +58,35 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản không tồn tại hoặc sai thông tin');
     }
 
-    // Kiểm tra mật khẩu
+    if (!user.isActive) {
+      throw new ForbiddenException(
+        'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin!',
+      );
+    }
+
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) throw new UnauthorizedException('Mật khẩu không chính xác');
 
-    // Gọi hàm tạo token (truyền fullName vào để trả về cho Client)
-    return this.signToken(user.id, user.email, user.role, user.fullName);
+    // MỚI: Nếu là ADMIN, tìm chi nhánh mà họ đang quản lý (Dựa trên field manager trong bảng Branch)
+    let managedBranchId: number | null = null;
+    if (user.role === Role.ADMIN) {
+      const branch = await this.prisma.branch.findFirst({
+        where: { manager: user.fullName, deletedAt: null },
+        select: { id: true }
+      });
+      managedBranchId = branch?.id || null;
+    }
+
+    return this.signToken(user.id, user.email, user.role, user.fullName, managedBranchId);
   }
 
-  // Helper tạo JWT Token
-  async signToken(userId: number, email: string, role: Role, fullName: string) {
+  // Helper tạo JWT Token - Bổ sung branchId vào Payload
+  async signToken(userId: number, email: string, role: Role, fullName: string, branchId: number | null) {
     const payload = {
       sub: userId,
       email,
       role,
+      branchId, // Đưa ID chi nhánh vào Token để dùng cho các Guard về sau
     };
 
     const secret = this.config.get('JWT_SECRET');
@@ -89,6 +101,7 @@ export class AuthService {
         id: userId,
         fullName: fullName,
         role: role,
+        branchId: branchId, // Trả về để FE lưu vào Context/LocalStorage
       },
     };
   }
