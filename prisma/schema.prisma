@@ -46,143 +46,163 @@ enum AccessStatus {
   FAILED
   DENIED // Dùng khi tài khoản bị khóa (isActive: false)
 }
-// --- MODELS ---
 
+// --- MODELS ---
 model Branch {
-  id        Int      @id @default(autoincrement())
-  name      String
-  address   String
-  manager   String
-  
-  image     String?  // Ảnh cổng/toàn cảnh
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id      Int     @id @default(autoincrement())
+  name    String
+  address String
+  manager String
+  image   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  rooms     Room[]
-  devices   Device[] // <--- MỚI: Danh sách thiết bị (Cam/Vân tay) tại chi nhánh này
+  rooms   Room[]
+  devices Device[]
+  users   User[]
+
+  // THÊM DÒNG NÀY ĐỂ ĐỐI ỨNG VỚI CONTRACT
+  contracts Contract[]
 }
 
 // <--- MỚI: Bảng quản lý thiết bị IoT
 model Device {
-  id        String      @id // Ví dụ: WEB_CAM_GIANG
-  name      String
-  type      String      // Thêm dòng này nếu chưa có
-  branchId  Int
-  branch    Branch      @relation(fields: [branchId], references: [id])
-  logs      AccessLog[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  id       String @id
+  name     String
+  type     String
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  // THÊM DÒNG NÀY ĐỂ ĐỐI XỨNG VỚI ACCESSLOG
+  accessLogs AccessLog[]
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
 }
+
 model Room {
-  id          Int        @id @default(autoincrement())
-  roomNumber  String
-  price       Decimal    @db.Decimal(10, 2)
-  area        Float?
-  status      RoomStatus @default(AVAILABLE)
-  
+  id         Int        @id @default(autoincrement())
+  roomNumber String
+  price      Decimal    @db.Decimal(10, 2)
+  area       Float?
+  status     RoomStatus @default(AVAILABLE)
+
   // Thông tin truyền thông
-  image       String?    // Ảnh đại diện phòng
-  video       String?    // URL Video giới thiệu (Cloudinary/Youtube)
-  
+  image String? // Ảnh đại diện phòng
+  video String? // URL Video giới thiệu (Cloudinary/Youtube)
+
   // Mô tả chi tiết và tiện ích
-  description String?    @db.Text
-  utilities   String[]   // Danh sách tiện ích (Ví dụ: ["Điều hòa", "Máy giặt", "Ban công"])
-  
-  branchId    Int
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  deletedAt   DateTime?
+  description String?  @db.Text
+  utilities   String[] // Danh sách tiện ích (Ví dụ: ["Điều hòa", "Máy giặt", "Ban công"])
+
+  branchId  Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   branch    Branch     @relation(fields: [branchId], references: [id])
   contracts Contract[]
   invoices  Invoice[]
 }
+
 model User {
-  id            Int      @id @default(autoincrement())
-  email         String   @unique 
-  password      String   
-  fullName      String
-  phone         String?  
-  identityCard  String?  @unique 
-  role          Role     @default(TENANT)
-  
-  avatar        String?  // Avatar
-  
+  id           Int     @id @default(autoincrement())
+  email        String  @unique
+  password     String
+  fullName     String
+  phone        String?
+  identityCard String? @unique
+  role         Role    @default(TENANT)
+  avatar       String?
+
+  // --- QUAN HỆ CHI NHÁNH [MỚI BỔ SUNG] ---
+  branchId       Int? // ID chi nhánh cư dân/admin thuộc về
+  branch         Branch?   @relation(fields: [branchId], references: [id])
+  invoices       Invoice[]
   // --- DATA CHO AI & IOT ---
-  faceDescriptor Float[] // Vector khuôn mặt (128 chiều)
-  fingerprintId  Int?     @unique // ID vân tay (lưu trên AS608)
+  faceDescriptor Float[]   @default([])
+  fingerprintId  Int?      @unique
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  deletedAt     DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  contracts     Contract[]
-  accessLogs    AccessLog[]
-  isActive  Boolean  @default(true) // Mặc định là mở khóa
+  contracts  Contract[]
+  accessLogs AccessLog[]
+  isActive   Boolean     @default(true)
 }
 
 // <--- MỚI: Bảng lịch sử ra vào (Quan trọng để chấm công/an ninh)
 model AccessLog {
-  id          Int          @id @default(autoincrement())
-  createdAt   DateTime     @default(now()) // Tên phổ thông hơn checkInAt
-  method      AccessMethod @default(FINGERPRINT)
-  status      AccessStatus @default(SUCCESS)
-  
+  id        Int          @id @default(autoincrement())
+  createdAt DateTime     @default(now()) // Tên phổ thông hơn checkInAt
+  method    AccessMethod @default(FINGERPRINT)
+  status    AccessStatus @default(SUCCESS)
+
   // Lưu độ tin cậy của AI (confidence) hoặc lý do từ chối
-  note        String?      
-  
+  note String?
+
   // Quan hệ với người dùng
-  userId      Int
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Vào từ cổng nào? (Ví dụ: "Cổng chính", "Cửa tầng 2")
-  deviceId    String?      
-  device      Device?      @relation(fields: [deviceId], references: [id])
+  deviceId String?
+  device   Device? @relation(fields: [deviceId], references: [id])
 
   @@index([userId])
   @@index([createdAt])
 }
+
 model Contract {
   id        Int            @id @default(autoincrement())
   startDate DateTime
   endDate   DateTime
   deposit   Decimal        @db.Decimal(10, 2)
   status    ContractStatus @default(ACTIVE)
-  
-  scanImage String?        // Ảnh hợp đồng giấy
-  
-  userId    Int
-  roomId    Int
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  scanImage String?
+
+  // --- QUAN HỆ CỐT LÕI ---
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  roomId Int
+  room   Room @relation(fields: [roomId], references: [id])
+
+  // BỔ SUNG: branchId trực tiếp để lọc đa chi nhánh cực nhanh
+  branchId Int
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  user      User           @relation(fields: [userId], references: [id])
-  room      Room           @relation(fields: [roomId], references: [id])
+  @@index([branchId]) // Tăng tốc độ tìm kiếm cho Admin chi nhánh
 }
 
 model Invoice {
-  id             Int           @id @default(autoincrement())
-  month          Int
-  year           Int
-  
+  id    Int @id @default(autoincrement())
+  month Int
+  year  Int
+
   oldElectricity Int
   newElectricity Int
   oldWater       Int
   newWater       Int
-  
-  serviceFee     Decimal       @db.Decimal(10, 2) @default(0)
-  totalAmount    Decimal       @db.Decimal(10, 2)
-  status         InvoiceStatus @default(UNPAID)
-  
-  paymentProof   String?       // Ảnh chuyển khoản
-  
-  roomId         Int
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime?
 
-  room           Room          @relation(fields: [roomId], references: [id])
+  serviceFee  Decimal       @default(0) @db.Decimal(10, 2)
+  totalAmount Decimal       @db.Decimal(10, 2)
+  status      InvoiceStatus @default(UNPAID)
+
+  paymentProof String? // Ảnh chuyển khoản
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roomId       Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  room Room @relation(fields: [roomId], references: [id])
 }

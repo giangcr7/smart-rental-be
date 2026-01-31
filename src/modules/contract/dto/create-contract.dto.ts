@@ -1,7 +1,15 @@
+// src/modules/contracts/dto/create-contract.dto.ts
+
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsNotEmpty, IsNumber, Min, IsOptional, IsString } from 'class-validator';
 
 export class CreateContractDto {
+  // BỔ SUNG: Trường này để nhận diện chi nhánh từ Modal gửi lên
+  @ApiProperty({ example: 1, description: 'ID Chi nhánh' })
+  @IsNumber()
+  @IsNotEmpty({ message: 'Chi nhánh không được để trống' })
+  branchId: number; 
+
   @ApiProperty({ example: '2026-01-15T00:00:00.000Z', description: 'Ngày bắt đầu' })
   @IsDateString()
   @IsNotEmpty()
@@ -27,14 +35,12 @@ export class CreateContractDto {
   @IsNotEmpty()
   roomId: number;
 
-  // --- CẬP NHẬT MỚI: Ảnh hợp đồng ---
   @ApiProperty({ 
-    example: 'https://res.cloudinary.com/demo/image/upload/contract-signed.jpg', 
-    description: 'Ảnh chụp hợp đồng giấy đã ký (URL)', 
+    example: 'https://image.com/contract-signed.jpg', 
+    description: 'Ảnh chụp hợp đồng giấy (URL)', 
     required: false 
   })
   @IsString()
   @IsOptional()
   scanImage?: string;
-  // ----------------------------------
 }

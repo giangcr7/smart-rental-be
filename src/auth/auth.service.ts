@@ -13,8 +13,6 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
   ) {}
-
-  // 1. ĐĂNG KÝ (Dành cho Cư dân)
   async register(dto: RegisterDto) {
     const userExists = await this.prisma.user.findUnique({
       where: { email: dto.email },
@@ -46,10 +44,7 @@ export class AuthService {
       throw error;
     }
   }
-
-  // 2. ĐĂNG NHẬP (Tích hợp tìm kiếm Chi nhánh quản lý)
   async login(dto: LoginDto) {
-    // Tìm user kèm thông tin chi nhánh nếu là Admin
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -66,8 +61,6 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(dto.password, user.password);
     if (!isMatch) throw new UnauthorizedException('Mật khẩu không chính xác');
-
-    // MỚI: Nếu là ADMIN, tìm chi nhánh mà họ đang quản lý (Dựa trên field manager trong bảng Branch)
     let managedBranchId: number | null = null;
     if (user.role === Role.ADMIN) {
       const branch = await this.prisma.branch.findFirst({
@@ -79,8 +72,6 @@ export class AuthService {
 
     return this.signToken(user.id, user.email, user.role, user.fullName, managedBranchId);
   }
-
-  // Helper tạo JWT Token - Bổ sung branchId vào Payload
   async signToken(userId: number, email: string, role: Role, fullName: string, branchId: number | null) {
     const payload = {
       sub: userId,

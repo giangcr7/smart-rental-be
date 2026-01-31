@@ -1,12 +1,16 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe, Req } from '@nestjs/common';
+import { 
+  Controller, Get, Post, Body, Patch, Param, 
+  Delete, UseGuards, ParseIntPipe, Req, Query 
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Role } from '@prisma/client';
-import { RolesGuard } from '../../auth/guard/roles.guard'; // Đường dẫn tùy cấu trúc folder của bạn
+import { RolesGuard } from '../../auth/guard/roles.guard';
 import { Roles } from '../../auth/decorator/roles.decorator';
+
 @ApiTags('Users - Quản lý người dùng')
 @ApiBearerAuth()
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -29,7 +33,7 @@ export class UsersController {
     return this.usersService.findDeleted();
   }
 
-  // --- 2. NHÓM TẠO MỚI & LẤY TẤT CẢ ---
+  // --- 2. NHÓM TẠO MỚI & LẤY TẤT CẢ (ĐÃ CẬP NHẬT LỌC CHI NHÁNH) ---
 
   @Post()
   @Roles(Role.ADMIN)
@@ -40,9 +44,11 @@ export class UsersController {
 
   @Get()
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Danh sách user đang hoạt động' })
-  findAll() {
-    return this.usersService.findAll();
+  @ApiOperation({ summary: 'Danh sách user đang hoạt động (Có hỗ trợ lọc chi nhánh)' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number })
+  findAll(@Query('branchId') branchId?: string) {
+    // Ép kiểu branchId sang number để truyền vào UsersService
+    return this.usersService.findAll(branchId ? Number(branchId) : undefined);
   }
 
   // --- 3. NHÓM ROUTE CÓ THAM SỐ :id (PHẢI ĐẶT DƯỚI CÙNG) ---
@@ -55,7 +61,11 @@ export class UsersController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Cập nhật thông tin' })
-  update(@Param('id', ParseIntPipe) id: number, @Body() updateUserDto: UpdateUserDto, @Req() req) {
+  update(
+    @Param('id', ParseIntPipe) id: number, 
+    @Body() updateUserDto: UpdateUserDto, 
+    @Req() req
+  ) {
     return this.usersService.update(id, updateUserDto, req.user);
   }
 
@@ -64,6 +74,16 @@ export class UsersController {
   @ApiOperation({ summary: 'Xóa user (Soft Delete)' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.remove(id);
+  }
+
+  @Patch(':id/status')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin khóa hoặc mở khóa tài khoản' })
+  async toggleStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('isActive') isActive: boolean,
+  ) {
+    return this.usersService.toggleUserStatus(id, isActive);
   }
 
   @Patch(':id/restore')
@@ -79,15 +99,4 @@ export class UsersController {
   hardDelete(@Param('id', ParseIntPipe) id: number) {
     return this.usersService.hardDelete(id);
   }
-  // src/users/users.controller.ts
-
-@Patch(':id/status') // Route này phải khớp với URL: /users/:id/status
-@Roles(Role.ADMIN)   // Đảm bảo chỉ Admin mới vặn được ổ khóa
-@ApiOperation({ summary: 'Admin khóa hoặc mở khóa tài khoản' })
-async toggleStatus(
-  @Param('id', ParseIntPipe) id: number,
-  @Body('isActive') isActive: boolean, // Lấy isActive từ body gửi lên
-) {
-  return this.usersService.toggleUserStatus(id, isActive);
-}
 }

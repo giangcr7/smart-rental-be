@@ -1,23 +1,26 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards, Query } from '@nestjs/common'; // Thêm Query
 import { StatisticsService } from './statistics.service';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
-import { Role } from '@prisma/client'; // Import Role
+import { Role } from '@prisma/client';
 
-// Import bảo vệ
-import{ RolesGuard } from '../../auth/guard/roles.guard';
+import { RolesGuard } from '../../auth/guard/roles.guard';
 import { Roles } from '../../auth/decorator/roles.decorator';
+
 @ApiTags('Statistics - Thống kê Dashboard')
 @ApiBearerAuth()
-@UseGuards(AuthGuard('jwt'), RolesGuard) // 1. Kích hoạt bảo vệ
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('statistics')
 export class StatisticsController {
   constructor(private readonly statisticsService: StatisticsService) {}
 
   @Get('dashboard')
-  @Roles(Role.ADMIN) // 2. CHỈ ADMIN MỚI ĐƯỢC XEM TIỀN
-  @ApiOperation({ summary: 'Lấy số liệu tổng quan (Chỉ Admin)' })
-  getDashboardStats() {
-    return this.statisticsService.getDashboardStats();
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Lấy số liệu tổng quan (Lọc theo chi nhánh)' })
+  @ApiQuery({ name: 'branchId', required: false, type: Number }) // Swagger documentation
+  getDashboardStats(@Query('branchId') branchId?: string) {
+    // Chuyển đổi branchId từ string sang number trước khi đưa vào Service
+    const branchIdNum = branchId ? Number(branchId) : undefined;
+    return this.statisticsService.getDashboardStats(branchIdNum);
   }
 }

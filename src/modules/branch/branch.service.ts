@@ -7,45 +7,66 @@ import { PrismaService } from 'src/prisma/prisma.service';
 export class BranchService {
   constructor(private prisma: PrismaService) {}
 
-  // 1. Tạo mới
+  // 1. TẠO MỚI + TỰ ĐỘNG KHỞI TẠO CAMERA MẪU
   async create(createBranchDto: CreateBranchDto) {
-    return this.prisma.branch.create({
-      data: createBranchDto,
+    // Sử dụng Transaction để đảm bảo nếu tạo Camera lỗi thì sẽ không tạo Chi nhánh
+    return this.prisma.$transaction(async (tx) => {
+      // Bước 1: Tạo Chi nhánh
+      const branch = await tx.branch.create({
+        data: createBranchDto,
+      });
+
+      // Bước 2: Tự động tạo Camera mẫu cho AI Scanner
+      // Tạo ID duy nhất dựa trên ID chi nhánh và thời gian
+      const deviceId = `CAM_${branch.id}_${Date.now().toString().slice(-4)}`;
+      
+      await tx.device.create({
+        data: {
+          id: deviceId,
+          name: `AI Gate Scanner - ${branch.name}`,
+          type: 'CAMERA',
+          branchId: branch.id,
+        }
+      });
+
+      return branch;
     });
   }
 
-  // 2. Lấy danh sách (Lọc xóa mềm và đếm số lượng phòng)
+  // 2. LẤY DANH SÁCH KÈM DEVICES
   async findAll() {
     return this.prisma.branch.findMany({
       where: { deletedAt: null },
       include: {
+        devices: {
+          where: { deletedAt: null } 
+        },
         _count: {
-          select: { rooms: { where: { deletedAt: null } } } // Đếm số phòng chưa bị xóa
+          select: { rooms: { where: { deletedAt: null } } } 
         }
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  // 3. Xem chi tiết
+  // 3. XEM CHI TIẾT
   async findOne(id: number) {
     const branch = await this.prisma.branch.findFirst({
       where: { id, deletedAt: null },
       include: { 
-        rooms: { 
-          where: { deletedAt: null } // Chỉ lấy các phòng chưa bị xóa
-        } 
+        devices: { where: { deletedAt: null } }, 
+        rooms: { where: { deletedAt: null } } 
       },
     });
 
     if (!branch) {
-      throw new NotFoundException(`Khu trọ với ID ${id} không tồn tại hoặc đã bị xóa`);
+      throw new NotFoundException(`Cơ sở ID ${id} không tồn tại hoặc đã bị xóa`);
     }
 
     return branch;
   }
 
-  // 4. Cập nhật
+  // 4. CẬP NHẬT
   async update(id: number, updateBranchDto: UpdateBranchDto) {
     await this.findOne(id); 
 
@@ -55,81 +76,93 @@ export class BranchService {
     });
   }
 
-  // 5. XÓA MỀM (Soft Delete có xử lý ràng buộc)
+  // 5. XÓA MỀM (Sử dụng Transaction để đồng bộ dữ liệu)
   async remove(id: number) {
     const branch = await this.findOne(id);
 
-    // LOGIC THỰC TẾ: Kiểm tra xem chi nhánh còn phòng nào đang có người ở (OCCUPIED) không?
     const occupiedRooms = await this.prisma.room.count({
-      where: {
-        branchId: id,
-        status: 'OCCUPIED',
-        deletedAt: null
-      }
+      where: { branchId: id, status: 'OCCUPIED', deletedAt: null }
     });
 
     if (occupiedRooms > 0) {
-      throw new BadRequestException(
-        `Không thể xóa chi nhánh này vì vẫn còn ${occupiedRooms} phòng đang có khách thuê!`
-      );
+      throw new BadRequestException(`Không thể xóa vì còn ${occupiedRooms} phòng đang có khách!`);
     }
 
-    // Dùng Transaction để xóa mềm cả Chi nhánh và các Phòng trống thuộc chi nhánh đó
     return this.prisma.$transaction(async (prisma) => {
-      // Xóa mềm tất cả các phòng thuộc chi nhánh này
+      const now = new Date();
+
+      // Xóa mềm Phòng
       await prisma.room.updateMany({
         where: { branchId: id, deletedAt: null },
-        data: { deletedAt: new Date() }
+        data: { deletedAt: now }
       });
 
-      // Xóa mềm chi nhánh
+      // Xóa mềm Thiết bị
+      await prisma.device.updateMany({
+        where: { branchId: id, deletedAt: null },
+        data: { deletedAt: now }
+      });
+
+      // Xóa mềm Chi nhánh
       return prisma.branch.update({
         where: { id },
-        data: { deletedAt: new Date() }, 
+        data: { deletedAt: now }, 
       });
     });
   }
-  // 6. Lấy danh sách Chi nhánh đã xóa mềm (Cho Thùng rác)
-async findDeleted() {
-  return this.prisma.branch.findMany({
-    where: { 
-      deletedAt: { not: null } 
-    },
-    orderBy: { deletedAt: 'desc' },
-  });
-}
 
-// 7. Khôi phục Chi nhánh
-async restore(id: number) {
-  const branch = await this.prisma.branch.findFirst({
-    where: { id, deletedAt: { not: null } }
-  });
-  if (!branch) throw new NotFoundException('Không tìm thấy chi nhánh này trong thùng rác');
-
-  return this.prisma.$transaction(async (prisma) => {
-    // 1. Khôi phục chi nhánh
-    const restoredBranch = await prisma.branch.update({
-      where: { id },
-      data: { deletedAt: null },
+  // 6. THÙNG RÁC
+  async findDeleted() {
+    return this.prisma.branch.findMany({
+      where: { deletedAt: { not: null } },
+      include: { devices: true }, 
+      orderBy: { deletedAt: 'desc' },
     });
+  }
 
-    // 2. Khôi phục luôn các phòng trực thuộc (nếu Giang muốn đi kèm)
-    await prisma.room.updateMany({
-      where: { branchId: id, deletedAt: { not: null } },
-      data: { deletedAt: null }
+  // 7. KHÔI PHỤC (Restore đồng bộ)
+  async restore(id: number) {
+    const branch = await this.prisma.branch.findFirst({
+      where: { id, deletedAt: { not: null } }
     });
+    if (!branch) throw new NotFoundException('Không tìm thấy trong thùng rác');
 
-    return restoredBranch;
-  });
-}
+    return this.prisma.$transaction(async (prisma) => {
+      const restoredBranch = await prisma.branch.update({
+        where: { id },
+        data: { deletedAt: null },
+      });
 
-// 8. Xóa vĩnh viễn (Hard Delete)
-async hardDelete(id: number) {
-  const branch = await this.prisma.branch.findUnique({ where: { id } });
-  if (!branch) throw new NotFoundException('Chi nhánh không tồn tại');
+      await prisma.room.updateMany({
+        where: { branchId: id, deletedAt: { not: null } },
+        data: { deletedAt: null }
+      });
 
-  return this.prisma.branch.delete({
-    where: { id },
-  });
-}
+      await prisma.device.updateMany({
+        where: { branchId: id, deletedAt: { not: null } },
+        data: { deletedAt: null }
+      });
+
+      return restoredBranch;
+    });
+  }
+
+  // 8. XÓA VĨNH VIỄN (Hard Delete kèm dọn rác quan hệ triệt để)
+  async hardDelete(id: number) {
+    const branch = await this.prisma.branch.findUnique({ where: { id } });
+    if (!branch) throw new NotFoundException('Chi nhánh không tồn tại');
+
+    return this.prisma.$transaction(async (prisma) => {
+        // Xóa sạch lịch sử ra vào của các thiết bị thuộc chi nhánh này trước
+        await prisma.accessLog.deleteMany({ 
+          where: { device: { branchId: id } } 
+        });
+        
+        // Xóa sạch thiết bị, phòng và chi nhánh
+        await prisma.device.deleteMany({ where: { branchId: id } });
+        await prisma.room.deleteMany({ where: { branchId: id } });
+        
+        return prisma.branch.delete({ where: { id } });
+    });
+  }
 }

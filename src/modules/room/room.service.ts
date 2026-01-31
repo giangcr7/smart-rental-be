@@ -45,14 +45,23 @@ export class RoomService {
   }
 
   // 3. XEM CHI TIẾT PHÒNG
-  async findOne(id: number) {
-    const room = await this.prisma.room.findFirst({
-      where: { id, deletedAt: null },
-      include: { branch: true },
-    });
-    if (!room) throw new NotFoundException(`Phòng ID ${id} không tồn tại!`);
-    return room;
-  }
+// src/rooms/room.service.ts
+
+async findOne(id: number) {
+  const room = await this.prisma.room.findFirst({
+    where: { id, deletedAt: null },
+    include: { 
+      branch: true,
+      // Lấy thêm hợp đồng đang hoạt động để hiện thông tin người thuê
+      contracts: {
+        where: { status: 'ACTIVE', deletedAt: null },
+        include: { user: true }
+      }
+    },
+  });
+  if (!room) throw new NotFoundException(`Phòng ID ${id} không tồn tại!`);
+  return room;
+}
 
   // 4. CẬP NHẬT THÔNG TIN
   async update(id: number, updateRoomDto: UpdateRoomDto) {
