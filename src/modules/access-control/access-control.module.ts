@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { PrismaModule } from 'src/prisma/prisma.module';
 import { AccessControlService } from './access-control.service';
-import { AccessControlController } from './access-control.controller'; // Import controller vào đây
+import { AccessControlController } from './access-control.controller';
 
 @Module({
-  imports: [HttpModule],
-  controllers: [AccessControlController], // <--- CỰC KỲ QUAN TRỌNG: Phải khai báo ở đây
+  imports: [
+    HttpModule, 
+    PrismaModule,  ], 
+  controllers: [AccessControlController],
   providers: [AccessControlService],
-  exports: [AccessControlService],
 })
 export class AccessControlModule {}

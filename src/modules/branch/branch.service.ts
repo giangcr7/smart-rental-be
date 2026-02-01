@@ -6,32 +6,33 @@ import { PrismaService } from 'src/prisma/prisma.service';
 @Injectable()
 export class BranchService {
   constructor(private prisma: PrismaService) {}
+// src/modules/branch/branch.service.ts
+async create(createBranchDto: CreateBranchDto) {
+  // 👇 Loại bỏ id nếu nó lỡ lọt qua màng lọc từ Frontend gửi lên
+  const { id, ...cleanData } = createBranchDto as any;
 
-  // 1. TẠO MỚI + TỰ ĐỘNG KHỞI TẠO CAMERA MẪU
-  async create(createBranchDto: CreateBranchDto) {
-    // Sử dụng Transaction để đảm bảo nếu tạo Camera lỗi thì sẽ không tạo Chi nhánh
-    return this.prisma.$transaction(async (tx) => {
-      // Bước 1: Tạo Chi nhánh
-      const branch = await tx.branch.create({
-        data: createBranchDto,
-      });
-
-      // Bước 2: Tự động tạo Camera mẫu cho AI Scanner
-      // Tạo ID duy nhất dựa trên ID chi nhánh và thời gian
-      const deviceId = `CAM_${branch.id}_${Date.now().toString().slice(-4)}`;
-      
-      await tx.device.create({
-        data: {
-          id: deviceId,
-          name: `AI Gate Scanner - ${branch.name}`,
-          type: 'CAMERA',
-          branchId: branch.id,
-        }
-      });
-
-      return branch;
+  return this.prisma.$transaction(async (tx) => {
+    // 1. Tạo Chi nhánh (Để DB tự quản lý việc sinh ID mới)
+    const branch = await tx.branch.create({
+      data: cleanData, 
     });
-  }
+
+    // 2. Tạo thiết bị với hậu tố ngẫu nhiên để tránh trùng ID Device
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000); 
+    const deviceId = `CAM_${branch.id}_${randomSuffix}`;
+    
+    await tx.device.create({
+      data: {
+        id: deviceId,
+        name: `AI Gate Scanner - ${branch.name}`,
+        type: 'CAMERA',
+        branchId: branch.id,
+      }
+    });
+
+    return branch;
+  });
+}
 
   // 2. LẤY DANH SÁCH KÈM DEVICES
   async findAll() {

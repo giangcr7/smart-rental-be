@@ -1,5 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsNumber, IsOptional, IsString, Min, IsArray } from 'class-validator';
+// 👇 1. Import thêm Type để ép kiểu
+import { Type, Transform } from 'class-transformer'; 
 
 export class CreateRoomDto {
   @ApiProperty({ example: 'P101', description: 'Số phòng/Tên phòng' })
@@ -8,59 +10,54 @@ export class CreateRoomDto {
   roomNumber: string;
 
   @ApiProperty({ example: 3500000, description: 'Giá thuê (VNĐ)' })
-  @IsNumber()
+  @IsNotEmpty({ message: 'Giá phòng không được để trống' })
+  @Type(() => Number) // 👈 2. BẮT BUỘC: Ép kiểu "5000000" -> 5000000
+  @IsNumber({}, { message: 'Giá phòng phải là số' })
   @Min(0, { message: 'Giá phòng không được âm' })
   price: number;
 
   @ApiProperty({ example: 25.5, description: 'Diện tích (m2)' })
-  @IsNumber()
   @IsOptional()
+  @Type(() => Number) // 👈 3. BẮT BUỘC: Ép kiểu "25.5" -> 25.5
+  @IsNumber({}, { message: 'Diện tích phải là số' })
   area?: number;
 
-  @ApiProperty({ 
-    example: 'https://res.cloudinary.com/demo/image/upload/v1/room.jpg', 
-    description: 'Link ảnh đại diện của phòng', 
-    required: false 
-  })
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
   image?: string;
 
-  // --- CÁC TRƯỜNG MỚI BỔ SUNG ---
+  // --- CÁC TRƯỜNG MỚI ---
 
-  @ApiProperty({ 
-    example: 'https://res.cloudinary.com/demo/video/upload/v1/intro.mp4', 
-    description: 'Link video quay thực tế căn phòng (URL)', 
-    required: false 
-  })
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
   video?: string;
 
-  @ApiProperty({ 
-    example: 'Phòng đầy đủ ánh sáng, có cửa sổ lớn hướng Nam, an ninh tốt.', 
-    description: 'Mô tả chi tiết về đặc điểm căn phòng', 
-    required: false 
-  })
+  @ApiProperty({ required: false })
   @IsString()
   @IsOptional()
   description?: string;
 
-  @ApiProperty({ 
-    example: ['Điều hòa', 'Máy giặt', 'Tủ lạnh', 'Wifi'], 
-    description: 'Danh sách các tiện ích đi kèm phòng', 
-    required: false,
-    type: [String]
-  })
-  @IsArray({ message: 'Tiện ích phải là một danh sách các chuỗi' })
-  @IsString({ each: true }) // Kiểm tra từng phần tử trong mảng phải là String
+  @ApiProperty({ type: [String], required: false })
   @IsOptional()
+  // 👇 4. Xử lý tiện ích (đề phòng Frontend gửi dạng JSON string hoặc mảng)
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+        // Nếu gửi dạng "Wifi,Điều hòa" -> tách thành mảng
+        return value.split(',').map(v => v.trim()); 
+    }
+    return value;
+  })
+  @IsArray()
+  @IsString({ each: true }) 
   utilities?: string[];
 
   // -----------------------------------------------------------
 
-  @ApiProperty({ example: 1, description: 'ID của Khu trọ chứa phòng này' })
-  @IsNumber()
-  @IsNotEmpty()
+  @ApiProperty({ example: 1, description: 'ID của Khu trọ' })
+  @IsNotEmpty({ message: 'ID chi nhánh không được để trống' })
+  @Type(() => Number) // 👈 5. BẮT BUỘC: Ép kiểu "1" -> 1
+  @IsNumber({}, { message: 'ID chi nhánh phải là số' })
   branchId: number;
 }

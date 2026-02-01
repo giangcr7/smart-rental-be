@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core'; // <--- 1. Import cái này
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -16,7 +16,6 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { UsersModule } from './modules/users/users.module';
 import { AccessControlModule } from './modules/access-control/access-control.module';
 
-// <--- 2. Import 2 cái khiên bảo vệ của mình
 import { JwtAuthGuard } from './auth/guard/jwt-auth.guard'; 
 import { RolesGuard } from './auth/guard/roles.guard';
 
@@ -47,16 +46,15 @@ import { RolesGuard } from './auth/guard/roles.guard';
   ],
   controllers: [AppController],
   
-  // --- 3. ĐĂNG KÝ GUARD TẠI ĐÂY ---
   providers: [
     AppService,
     {
       provide: APP_GUARD,
-      useClass: JwtAuthGuard, // Kích hoạt Guard thông minh (Biết check @Public)
+      useClass: JwtAuthGuard,
     },
     {
       provide: APP_GUARD,
-      useClass: RolesGuard,   // Kích hoạt phân quyền Admin/User
+      useClass: RolesGuard,
     },
   ],
 })

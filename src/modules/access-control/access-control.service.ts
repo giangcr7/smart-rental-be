@@ -1,8 +1,9 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from 'src/prisma/prisma.service';
+// ❌ Đã xóa import EventsGateway
 import { firstValueFrom } from 'rxjs';
-import FormData from 'form-data';
+import FormData from 'form-data'; 
 import dayjs from 'dayjs'; 
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -17,9 +18,12 @@ export class AccessControlService {
   constructor(
     private readonly httpService: HttpService,
     private prisma: PrismaService,
+    // ❌ Đã xóa inject EventsGateway
   ) {}
 
-  // --- 1. ĐĂNG KÝ KHUÔN MẶT ---
+  // =================================================================
+  // 1. ĐĂNG KÝ KHUÔN MẶT (Giữ nguyên logic lưu DB)
+  // =================================================================
   async registerFace(userId: number, file: Express.Multer.File) {
     const formData = new FormData();
     formData.append('file', file.buffer, {
@@ -35,10 +39,9 @@ export class AccessControlService {
       );
 
       if (response.data.status === 'fail') {
-        throw new BadRequestException('AI không thể trích xuất đặc trưng. Hãy chụp rõ mặt hơn.');
+        throw new BadRequestException('AI không thể trích xuất đặc trưng.');
       }
 
-      // Lưu mảng 128 số trực tiếp vào User
       const updatedUser = await this.prisma.user.update({
         where: { id: userId },
         data: { faceDescriptor: response.data.encoding },
@@ -50,43 +53,34 @@ export class AccessControlService {
       };
     } catch (error) {
       this.logger.error(`Lỗi Register: ${error.message}`);
-      throw new BadRequestException('Hệ thống AI đang bận hoặc lỗi ảnh: ' + error.message);
+      throw new BadRequestException('Lỗi kết nối AI Service: ' + error.message);
     }
   }
 
-  // --- 2. NHẬN DIỆN MỞ CỔNG (LUỒNG CHUẨN THUÊ TRỌ) ---
+  // =================================================================
+  // 2. NHẬN DIỆN & LƯU LOG VÀO DATABASE
+  // =================================================================
   async verifyFaceWithAI(file: Express.Multer.File, deviceId: string) {
-    // 1. Xác định vị trí cổng (Device) thuộc chi nhánh nào
     const device = await this.prisma.device.findUnique({
       where: { id: deviceId },
       include: { branch: true }
     });
+    if (!device) throw new BadRequestException('Gate ID không hợp lệ.');
 
-    if (!device) throw new BadRequestException('Thiết bị (Gate ID) không hợp lệ trên hệ thống.');
-
-    // 2. LẤY DANH SÁCH ĐỐI SOÁT: Nới lỏng để cư dân mới chưa có hợp đồng vẫn được nhận diện nếu thuộc chi nhánh
-// src/modules/access-control/access-control.service.ts
-
-const authorizedUsers = await this.prisma.user.findMany({
-  where: {
-    isActive: true, 
-    deletedAt: null,
-    branchId: device.branchId,
-    // SỬA TẠI ĐÂY: Loại bỏ những người có mảng faceDescriptor rỗng
-    NOT: {
-      faceDescriptor: {
-        equals: [], // Kiểm tra mảng có bằng mảng rỗng hay không
+    const authorizedUsers = await this.prisma.user.findMany({
+      where: {
+        isActive: true, 
+        deletedAt: null,
+        branchId: device.branchId,
+        NOT: { faceDescriptor: { equals: [] } },
       },
-    },
-  },
-  select: { id: true, fullName: true, faceDescriptor: true },
-});
+      select: { id: true, fullName: true, faceDescriptor: true },
+    });
 
     if (authorizedUsers.length === 0) {
-      throw new BadRequestException('Chi nhánh này hiện chưa có cư dân nào được cấp quyền FaceID.');
+      throw new BadRequestException('Chi nhánh chưa có cư dân FaceID.');
     }
 
-    // 3. GỬI DỮ LIỆU SANG PYTHON AI
     const formData = new FormData();
     formData.append('file', file.buffer, { filename: 'verify.jpg', contentType: file.mimetype });
     formData.append(
@@ -98,7 +92,7 @@ const authorizedUsers = await this.prisma.user.findMany({
       const response = await firstValueFrom(
         this.httpService.post('http://localhost:8000/verify', formData, {
           headers: { ...formData.getHeaders() },
-          timeout: 5000 // Timeout 5s để đảm bảo phản hồi nhanh tại cổng
+          timeout: 5000 
         }),
       );
 
@@ -106,53 +100,70 @@ const authorizedUsers = await this.prisma.user.findMany({
         const userId = response.data.userId;
         const matchedUser = authorizedUsers.find(u => u.id === userId);
 
-        // Ghi nhật ký thành công
+        if (!matchedUser) {
+           throw new BadRequestException('Lỗi dữ liệu: AI trả về ID không khớp.');
+        }
+
+        // ✅ CHỈ LƯU LOG VÀO DB (Không bắn Socket nữa)
         await this.prisma.accessLog.create({
           data: {
             userId: userId,
             deviceId: deviceId,
             method: 'FACE_ID',
             status: 'SUCCESS',
-            note: `Xác thực tại: ${device.branch.name}`,
+            note: `Verified at: ${device.branch.name}`,
           },
         });
 
+        this.logger.log(`✅ Cư dân ${matchedUser.fullName} đã vào cổng.`);
+
         return { 
           status: 'success', 
-          fullName: matchedUser?.fullName, 
+          fullName: matchedUser.fullName, 
           userId,
-          message: `Chào mừng ${matchedUser?.fullName} về nhà!` 
+          message: `Xin chào ${matchedUser.fullName}!` 
         };
       }
 
-      // Trường hợp không khớp: Ghi log thất bại để Admin theo dõi
-      return { status: 'fail', message: 'Cảnh báo! Khuôn mặt không có trong danh sách cư dân chi nhánh này.' };
+      return { status: 'fail', message: 'Khuôn mặt không tồn tại.' };
 
     } catch (error) {
       this.logger.error(`AI Verify Error: ${error.message}`);
-      throw new BadRequestException('Hệ thống nhận diện đang gặp sự cố kết nối.');
+      throw new BadRequestException('AI Service không phản hồi.');
     }
   }
 
-  // --- 3. NHẬT KÝ (FORMAT VIỆT NAM) ---
+  // =================================================================
+  // 3. LẤY LOGS CHO TRANG DASHBOARD/LỊCH SỬ
+  // =================================================================
   async getRecentLogs(limit: number = 10, branchId?: number) {
     const logs = await this.prisma.accessLog.findMany({
       take: limit,
       orderBy: { createdAt: 'desc' },
-      where: branchId ? { device: { branchId: branchId } } : {},
+      where: branchId ? { device: { branchId: Number(branchId) } } : {},
       include: { 
         user: true,
         device: { include: { branch: true } }
       }
     });
 
-    return logs.map(log => ({
-      id: log.id,
-      method: log.method,
-      status: log.status,
-      time: dayjs(log.createdAt).tz('Asia/Ho_Chi_Minh').format('HH:mm:ss DD/MM/YYYY'),
-      branch: log.device?.branch?.name || 'Cổng lạ',
-      resident: log.user?.fullName || 'Người lạ',
+    return Promise.all(logs.map(async (log) => {
+      const contract = log.userId ? await this.prisma.contract.findFirst({
+        where: { userId: log.userId, status: 'ACTIVE' },
+        include: { room: true }
+      }) : null;
+
+      return {
+        id: log.id,
+        method: log.method,
+        status: log.status,
+        createdAt: log.createdAt,
+        time: dayjs(log.createdAt).tz('Asia/Ho_Chi_Minh').format('HH:mm:ss DD/MM/YYYY'),
+        branch: log.device?.branch?.name || 'Unknown',
+        resident: log.user?.fullName || 'Unknown',
+        user: log.user,
+        room: contract?.room || null
+      };
     }));
   }
 }

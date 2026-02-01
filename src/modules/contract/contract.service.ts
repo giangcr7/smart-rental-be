@@ -8,66 +8,70 @@ import { RoomStatus, ContractStatus, Role, Prisma } from '@prisma/client';
 export class ContractService {
   constructor(private prisma: PrismaService) {}
 
-  // 1. TẠO HỢP ĐỒNG: Khóa phòng & Cấp quyền AI
+// 1. TẠO HỢP ĐỒNG: Fix logic tính ngày và lưu branchId cứng
   async create(dto: CreateContractDto) {
     const { roomId, userId, startDate, endDate, deposit, scanImage, branchId } = dto;
 
     return this.prisma.$transaction(async (tx) => {
-      // Check phòng trống
+      // 1. Check phòng
       const room = await tx.room.findUnique({ where: { id: roomId } });
       if (!room || room.status !== RoomStatus.AVAILABLE) {
-        throw new BadRequestException('Phòng không sẵn sàng hoặc đã có người thuê.');
+        throw new BadRequestException('Phòng không tồn tại hoặc đã có người thuê.');
       }
 
-      // FIX LỖI: Tính toán ngày kết thúc
-      // Nếu user không nhập endDate -> Mặc định lấy startDate + 1 năm
-      const calculatedEndDate = endDate 
-        ? new Date(endDate) 
-        : new Date(new Date(startDate).setFullYear(new Date(startDate).getFullYear() + 1));
+      // 2. Tự động tính endDate nếu thiếu (Mặc định 6 tháng hoặc 1 năm)
+      // Fix lỗi logic cũ: new Date(...) + 1 năm
+      let finalEndDate = endDate ? new Date(endDate) : undefined;
+      if (!finalEndDate) {
+        const start = new Date(startDate);
+        finalEndDate = new Date(start.setFullYear(start.getFullYear() + 1));
+      }
 
-      // Tạo Contract
+      // 3. Xác định BranchId chuẩn
+      // Ưu tiên branchId từ DTO, nếu không có thì lấy từ Room
+      const finalBranchId = branchId ? Number(branchId) : room.branchId;
+
+      // 4. Tạo Contract
       const contract = await tx.contract.create({
         data: {
           startDate: new Date(startDate),
-          endDate: calculatedEndDate, 
+          endDate: finalEndDate,
           deposit: new Prisma.Decimal(deposit),
           status: ContractStatus.ACTIVE,
           scanImage,
           userId,
           roomId,
-          branchId: branchId || room.branchId, // Lưu cứng branchId
+          branchId: finalBranchId, // Quan trọng: Lưu cứng để lọc cho nhanh
         },
+        include: { room: true, user: true, branch: true } // Trả về full data để Frontend dùng ngay
       });
 
-      // Update Phòng -> OCCUPIED
+      // 5. Update trạng thái Room & User
       await tx.room.update({ where: { id: roomId }, data: { status: RoomStatus.OCCUPIED } });
-      
-      // Update User -> Cấp quyền AI tại chi nhánh này
-      await tx.user.update({ where: { id: userId }, data: { branchId: branchId || room.branchId } });
+      await tx.user.update({ where: { id: userId }, data: { branchId: finalBranchId } });
 
       return contract;
     });
   }
-
-  // 2. LẤY DANH SÁCH: Lấy cả ACTIVE và TERMINATED (Chỉ trừ cái đã xóa mềm)
-  async findAll(user: any, branchId?: number) {
-    const where: Prisma.ContractWhereInput = { deletedAt: null }; // Quan trọng: Chỉ lấy cái chưa vào thùng rác
-
-    if (user.role !== Role.ADMIN) {
-      where.userId = user.id;
+  async findAll(user: any, branchIdQuery?: number) {
+    const where: Prisma.ContractWhereInput = { deletedAt: null };
+    if (user.role === Role.ADMIN) {
+      if (branchIdQuery) {
+        where.branchId = Number(branchIdQuery);
+      } 
     } else {
-      const targetBranch = user.branchId || branchId;
-      if (targetBranch) where.branchId = Number(targetBranch);
+      where.userId = user.id;
     }
 
     return this.prisma.contract.findMany({
       where,
       include: {
+        // Include đầy đủ để Frontend hiển thị bảng đẹp
         user: { select: { id: true, fullName: true, phone: true, email: true, avatar: true } },
-        room: { include: { branch: true } }, 
-        branch: true
+        room: { select: { id: true, roomNumber: true, branchId: true } }, // Lấy roomNumber
+        branch: { select: { id: true, name: true } } // Lấy tên chi nhánh
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }, // Mới nhất lên đầu
     });
   }
 
