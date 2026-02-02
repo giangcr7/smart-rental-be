@@ -13,42 +13,42 @@ export class StatisticsService {
 
     const commonFilter = {
       deletedAt: null,
-      ...(branchId && { branchId }),
+      ...(branchId && { branchId }), // Lọc theo chi nhánh nếu có
     };
 
-    // 1. KHAI BÁO KIỂU DỮ LIỆU CỤ THỂ
-    const chartData: { name: string; total: number }[] = [];
-    
-    for (let i = 5; i >= 0; i--) {
-      const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const m = targetDate.getMonth() + 1;
-      const y = targetDate.getFullYear();
+    // 1. TÍNH BIỂU ĐỒ 6 THÁNG (DOANH THU)
+    // Dùng Promise.all để chạy song song 6 câu lệnh thay vì chờ từng cái (Nhanh hơn)
+    const months = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+        return { month: d.getMonth() + 1, year: d.getFullYear() };
+    });
 
-      const monthlySum = await this.prisma.invoice.aggregate({
-        _sum: { totalAmount: true },
-        where: {
-          status: InvoiceStatus.PAID,
-          month: m,
-          year: y,
-          deletedAt: null,
-          // Truy vấn lồng để lọc đúng chi nhánh
-          room: branchId ? { is: { branchId: branchId } } : undefined, 
-        },
-      });
+    const chartDataPromises = months.map(async ({ month, year }) => {
+        const sum = await this.prisma.invoice.aggregate({
+            _sum: { totalAmount: true },
+            where: {
+                status: InvoiceStatus.PAID,
+                month: month,
+                year: year,
+                deletedAt: null,
+                room: branchId ? { is: { branchId } } : undefined,
+            }
+        });
+        return {
+            name: `T${month}/${year}`,
+            total: Number(sum._sum.totalAmount) || 0
+        };
+    });
 
-      chartData.push({
-        name: `T${m}/${y.toString().slice(-2)}`,
-        total: Number(monthlySum._sum.totalAmount) || 0,
-      });
-    }
-
-    // 2. TRUY VẤN SONG SONG
+    // 2. TRUY VẤN CÁC CHỈ SỐ KHÁC
     const [
+      chartData,      // Kết quả của biểu đồ trên
       totalRooms,
       availableRooms,
       totalTenants,
-      currentDebt
+      currentDebt     // Công nợ
     ] = await Promise.all([
+      Promise.all(chartDataPromises), // Chờ biểu đồ chạy xong
       this.prisma.room.count({ where: commonFilter }),
       this.prisma.room.count({ 
         where: { ...commonFilter, status: RoomStatus.AVAILABLE } 
@@ -60,19 +60,21 @@ export class StatisticsService {
           contracts: branchId ? { some: { room: { is: { branchId } } } } : undefined
         }
       }),
+      // 🔥 SỬA LOGIC CÔNG NỢ: Bỏ lọc month/year để tính TẤT CẢ nợ cũ
       this.prisma.invoice.aggregate({
         _sum: { totalAmount: true },
         where: {
           status: InvoiceStatus.UNPAID,
-          month: currentMonth,
-          year: currentYear,
           deletedAt: null,
           room: branchId ? { is: { branchId } } : undefined,
+          // ❌ Đã xóa month: currentMonth
+          // ❌ Đã xóa year: currentYear
         },
       }),
     ]);
 
     const rentedRooms = totalRooms - availableRooms;
+    const currentRevenue = chartData[chartData.length - 1].total;
 
     return {
       overview: {
@@ -87,7 +89,7 @@ export class StatisticsService {
       finance: {
         month: currentMonth,
         year: currentYear,
-        revenue: chartData[chartData.length - 1].total,
+        revenue: currentRevenue,
         debt: Number(currentDebt._sum.totalAmount) || 0,
         chartData
       }

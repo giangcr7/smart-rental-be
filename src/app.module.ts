@@ -18,6 +18,7 @@ import { AccessControlModule } from './modules/access-control/access-control.mod
 
 import { JwtAuthGuard } from './auth/guard/jwt-auth.guard'; 
 import { RolesGuard } from './auth/guard/roles.guard';
+import { IncidentsModule } from './modules/incidents/incidents.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { RolesGuard } from './auth/guard/roles.guard';
     CloudinaryModule,
     UsersModule,
     AccessControlModule,
+    IncidentsModule,
   ],
   controllers: [AppController],
   

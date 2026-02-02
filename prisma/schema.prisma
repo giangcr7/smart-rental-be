@@ -44,9 +44,20 @@ enum AccessMethod {
 enum AccessStatus {
   SUCCESS
   FAILED
-  DENIED // Dùng khi tài khoản bị khóa (isActive: false)
+  DENIED 
 }
-
+enum IncidentStatus {
+  PENDING     // Chờ tiếp nhận (Mới gửi)
+  ACCEPTED    // Đã tiếp nhận (Admin đã xem)
+  PROCESSING  // Đang xử lý (Đang sửa)
+  DONE        // Hoàn thành
+  CANCELLED   // Đã hủy (Báo sai hoặc spam)
+}
+enum IncidentPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
 // --- MODELS ---
 model Branch {
   id      Int     @id @default(autoincrement())
@@ -105,6 +116,7 @@ model Room {
   branch    Branch     @relation(fields: [branchId], references: [id])
   contracts Contract[]
   invoices  Invoice[]
+  incidents Incident[]
 }
 
 model User {
@@ -132,6 +144,7 @@ model User {
   contracts  Contract[]
   accessLogs AccessLog[]
   isActive   Boolean     @default(true)
+  incidents Incident[]
 }
 
 // <--- MỚI: Bảng lịch sử ra vào (Quan trọng để chấm công/an ninh)
@@ -205,4 +218,31 @@ model Invoice {
   deletedAt    DateTime?
 
   room Room @relation(fields: [roomId], references: [id])
+}
+model Incident {
+  id          Int              @id @default(autoincrement())
+  title       String           // Tiêu đề (VD: Hỏng bóng đèn, Vòi nước rò rỉ)
+  description String?          @db.Text // Mô tả chi tiết
+  images      String[]         // Mảng chứa link ảnh (PostgreSQL hỗ trợ mảng string)
+  
+  status      IncidentStatus   @default(PENDING)
+  priority    IncidentPriority @default(MEDIUM)
+  
+  // Chi phí sửa chữa (Nếu Admin muốn ghi lại để thống kê chi phí vận hành)
+  repairCost  Decimal?         @db.Decimal(10, 2)
+
+  // Người báo cáo (Bắt buộc)
+  userId      Int
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Thuộc phòng nào? (Có thể null nếu báo hỏng hành lang/cổng chung)
+  roomId      Int?
+  room        Room?            @relation(fields: [roomId], references: [id])
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?        // Xóa mềm
+
+  @@index([userId])
+  @@index([roomId])
 }
